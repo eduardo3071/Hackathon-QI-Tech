@@ -120,3 +120,24 @@ class PixFeatureRepository:
             )
             .scalar()
         )
+
+    def count_step_ups(
+        self, payer_document: str, destination_account_id: int, start: datetime, end: datetime, step_up_reason: str
+    ) -> int:
+        """Quantos Pix deste pagador para esta conta pediram 2FA pelo motivo pedido, na janela.
+
+        Conta o 2FA PEDIDO, qualquer que tenha sido o retorno (passou,
+        falhou ou nem voltou): é a suspeita que o motor levantou na hora.
+        """
+        return (
+            self.session.query(func.count(PixTransaction.id))
+            .join(Analysis, Analysis.pix_transaction_id == PixTransaction.id)
+            .filter(
+                PixTransaction.payer_document_number == payer_document,
+                PixTransaction.destination_account_id == destination_account_id,
+                PixTransaction.transaction_date >= start,
+                PixTransaction.transaction_date <= end,
+                Analysis.step_up_reason == step_up_reason,
+            )
+            .scalar()
+        )

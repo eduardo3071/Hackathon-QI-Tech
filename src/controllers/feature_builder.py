@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from constants import LOCAL_TIMEZONE
+from controllers.decision import STEP_UP_POSSIBLE_SCAM
 from controllers.device_trust import DeviceTrust
 from controllers.features import PixFeatures
 from controllers.rules.policy_parameters import PolicyParameters
@@ -86,6 +87,9 @@ class FeatureBuilder:
                 destination_account.id, AnalysisStatus.APPROVED
             ),
             payee_distinct_payers=self._distinct_payers(pix, params.of("CONTA_RECEBEDORA.fan_in")),
+            payee_prior_scam_step_ups=self._prior_scam_step_ups(
+                pix, destination_account, params.of("CONTA_RECEBEDORA.suspeita_anterior")
+            ),
         )
 
     def _markers(self, document_number: str, transaction_date: datetime) -> list:
@@ -197,3 +201,14 @@ class FeatureBuilder:
         payers.add(pix["payer_document"])
 
         return len(payers)
+
+    def _prior_scam_step_ups(self, pix: dict, destination_account: Account, parameters):
+        """Quantas vezes este pagador já tomou 2FA por suspeita de golpe para esta conta, na janela."""
+        if parameters is None:
+            return None
+
+        window_start = pix["transaction_date"] - timedelta(days=parameters["window_days"])
+
+        return self.pix_feature_repository.count_step_ups(
+            pix["payer_document"], destination_account.id, window_start, pix["transaction_date"], STEP_UP_POSSIBLE_SCAM
+        )

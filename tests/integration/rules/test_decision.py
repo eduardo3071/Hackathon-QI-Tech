@@ -143,6 +143,7 @@ class TestDecisionLayers:
             "PERFIL.valor",
             "CONTA_RECEBEDORA.conta_nova",
             "CONTA_RECEBEDORA.fan_in",
+            "CONTA_RECEBEDORA.suspeita_anterior",
         }
 
     def test_rejected_pix_is_recorded_and_consultable(self):

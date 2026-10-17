@@ -347,6 +347,13 @@ CROSS JOIN (VALUES
     ('CONTA_RECEBEDORA.fan_in',
      '{"window_minutes": 60, "min_distinct_payers": 5, "points": 40}'),
 
+    -- Estimativa: o pagador já tomou 2FA por suspeita de golpe para esta
+    -- conta nos últimos 90 dias e o valor está fora do perfil → pontua
+    -- golpe no valor do corte de golpe (60): o golpe repetido do falso
+    -- investimento volta a pedir confirmação com aviso.
+    ('CONTA_RECEBEDORA.suspeita_anterior',
+     '{"window_days": 90, "points": 60}'),
+
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
     -- diferentes: um sinal sozinho não é "risco claro".

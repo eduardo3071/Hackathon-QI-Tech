@@ -5,7 +5,7 @@ Entrega: link do repositório no Slack (grupo da final) até **domingo 18/10, 12
 
 ## Fontes de verdade (leia antes de mudar o desenho)
 
-- **Este arquivo foi revisado em 17/10, 15h15.** Onde ele e o `docs/PLANO.md` divergirem, vale ESTE arquivo
+- **Este arquivo foi revisado em 17/10, 15h15** (e acrescido do sinal `CONTA_RECEBEDORA.suspeita_anterior`, decisão do grupo). Onde ele e o `docs/PLANO.md` divergirem, vale ESTE arquivo
   (seções "Como o motor decide", "Confiança do aparelho", "Cliente que o motor ainda não conhece", "Retorno do 2FA"
   e "Sinais novos").
 - `docs/PLANO.md` — plano completo: fases, catálogo das 8 regras e dos sinais, modelo de dados, contrato, checklist.
@@ -48,7 +48,8 @@ Entrega: link do repositório no Slack (grupo da final) até **domingo 18/10, 12
   | Reenvio do mesmo `id` com o CPF mascarado (`123.456.789-09` em vez de `12345678909`) | 200 com a análise gravada (não 409) |
   | Mesmo pagador reenvia o mesmo valor para o mesmo destino com `id` novo, 3 vezes em 5 min | conta como 1 tentativa na velocidade |
   | Celular novo pede 2FA (`face_liveness`), retorno `passed`, e 10 min depois manda R$ 800 do mesmo aparelho | o segundo não pede 2FA por aparelho |
-  | Pix com 2FA por `possible_scam`, retorno `passed`, e no dia seguinte outro Pix fora do perfil para o mesmo destino | destino NÃO é tratado como recorrente |
+  | Pix com 2FA por `possible_scam`, retorno `passed`, e no dia seguinte outro Pix fora do perfil para o mesmo destino | destino NÃO é tratado como recorrente, e o Pix é `two_factor_required` com `possible_scam` e `scam_warning: true` (`CONTA_RECEBEDORA.suspeita_anterior`) |
+  | Mesmo caso, mas o Pix do dia seguinte com valor dentro do perfil | `approved` (o sinal passa) |
   | Celular novo pede 2FA (`face_liveness`), retorno `failed`, e no dia seguinte faz 2 Pix pequenos aprovados | aparelho continua não confiável |
   | `GET` depois de um retorno `passed` | `status: approved`, com `initial_status: two_factor_required` e o histórico |
 
@@ -151,9 +152,18 @@ pode ser nulo, `to_status_id`, `event_datetime`, `created_at`). Toda análise gr
 - `passed` com `step_up_reason: possible_scam` → o Pix entra no perfil e na soma noturna, mas **não torna o destino
   recorrente**: a vítima de golpe confirma o Pix e costuma pagar o mesmo golpista de novo (falso investimento).
   Grave isso no par (`scam_step_up_count`), e o atenuante de destino recorrente do `PERFIL.valor` não vale para ele.
+  A suspeita também não some com o 2FA confirmado: veja `CONTA_RECEBEDORA.suspeita_anterior` abaixo.
 - `failed` → status `rejected`. Se o motivo era `account_takeover`, o aparelho fica **bloqueado para confiança por
   24 h** para este pagador (`step_up_failed_at` em `device_owner`): nenhum Pix aprovado nesse período o torna confiável.
 - O retorno não reavalia as regras nem conta como nova tentativa na velocidade.
+
+**Golpe repetido — `CONTA_RECEBEDORA.suspeita_anterior` (Regra 6, camada 1; decisão do grupo em 17/10):**
+- Se este pagador já teve **2FA por `possible_scam` para esta conta destino nos últimos 90 dias** (qualquer retorno,
+  ou nenhum) **e** o valor atual está fora do perfil (`PERFIL.valor`), o sinal pontua `app` no valor do corte de golpe
+  (60) → `two_factor_required` com `possible_scam` e `scam_warning: true`. Dentro do perfil, passa.
+- Janela e pontos em `rule_parameter` (`window_days: 90`, `points: 60`). Mesma titularidade → `not_needed`.
+- Por quê: sem ele, a vítima que confirmou o golpe e paga o mesmo golpista no dia seguinte saía `approved` com `warn`
+  (o crédito confirmado tira a conta do "primeiro crédito" da `conta_nova`, e o placar `app` ficava na faixa de aviso).
 
 ## Cliente que o motor ainda não conhece (NOVO — banco vazio na avaliação)
 

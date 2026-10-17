@@ -151,6 +151,50 @@ class TestTwoFactorReturnScenarios:
         assert profile_reason["typology"] == "app"
         assert profile_reason["points"] > 0
 
+    def test_repeated_scam_out_of_profile_asks_two_factor_again(self):
+        """A vítima confirmou o golpe ontem e hoje manda mais, fora do perfil, para o mesmo destino.
+
+        Sem o sinal CONTA_RECEBEDORA.suspeita_anterior, este Pix saía
+        `approved` com `warn`: o crédito confirmado ontem tirou a conta do
+        "primeiro crédito", e o placar de golpe ficava na faixa de aviso.
+        Com ele, a suspeita de ontem pontua o corte de golpe: 2FA com aviso.
+        """
+        client = client_with_history()
+        scammer = new_payee(opening_date="2026-09-27T10:00:00-03:00")
+        origin = {"payer_document": client["payer_document"], "device_id": client["device_id"]}
+
+        first = send(**origin, **scammer, amount=200000, transaction_date=DAY)
+        assert first["metadata"]["step_up_reason"] == "possible_scam"
+        send_two_factor_return(first, "passed", shift_date(DAY, minutes=2))
+
+        second = send(**origin, **scammer, amount=300000, transaction_date=shift_date(DAY, days=1))
+
+        assert second["status"] == "two_factor_required"
+        assert second["metadata"]["step_up_reason"] == "possible_scam"
+        assert second["metadata"]["scam_warning"] is True
+        signal = reason_for(second, "CONTA_RECEBEDORA.suspeita_anterior")
+        assert signal is not None, second["metadata"]
+        assert signal["typology"] == "app"
+        assert signal["observed"]["prior_scam_step_ups"] == 1
+
+    def test_repeated_scam_destination_within_profile_stays_approved(self):
+        """O mesmo destino de novo, mas com valor dentro do perfil: o sinal não pontua, e o Pix sai."""
+        client = client_with_history()
+        scammer = new_payee(opening_date="2026-09-27T10:00:00-03:00")
+        origin = {"payer_document": client["payer_document"], "device_id": client["device_id"]}
+
+        first = send(**origin, **scammer, amount=200000, transaction_date=DAY)
+        assert first["metadata"]["step_up_reason"] == "possible_scam"
+        send_two_factor_return(first, "passed", shift_date(DAY, minutes=2))
+
+        # O perfil agora tem os 5 Pix de R$ 100 e o de R$ 2.000: o P95 é
+        # R$ 2.000, e R$ 2.000 não passa dele.
+        second = send(**origin, **scammer, amount=200000, transaction_date=shift_date(DAY, days=1))
+
+        assert second["status"] == "approved"
+        assert reason_for(second, "CONTA_RECEBEDORA.suspeita_anterior") is None
+        assert "CONTA_RECEBEDORA.suspeita_anterior" in second["metadata"]["passed"]
+
     def test_face_liveness_failed_blocks_the_device_trust_for_a_day(self):
         """Biometria reprovada: por 24 h, nenhum Pix aprovado deste celular o torna confiável.
 

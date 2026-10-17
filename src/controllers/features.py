@@ -51,6 +51,7 @@ class PixFeatures:
     payee_account_age_days: int
     payee_prior_approved_credits: int
     payee_distinct_payers: Optional[int]
+    payee_prior_scam_step_ups: Optional[int]
 
     @property
     def destination_recurring(self) -> bool:
