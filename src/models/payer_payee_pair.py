@@ -15,6 +15,7 @@ class PayerPayeePair(Base):
     last_seen_at = Column(DateTime(timezone=True), nullable=False)
     approved_count = Column(Integer, nullable=False)
     approved_amount = Column(BigInteger, nullable=False)
+    scam_step_up_count = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (UniqueConstraint("payer_document_number", "destination_account_id"),)

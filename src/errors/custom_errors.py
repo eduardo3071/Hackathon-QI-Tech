@@ -68,6 +68,26 @@ class InvalidDate(QIException):
         super().__init__(title, self.code, http_status, description, translation)
 
 
+class InvalidIpAddress(QIException):
+    """O IP tem cara de IP e não é um IPv4 nem um IPv6 de verdade.
+
+    422 pelo mesmo motivo do CPF: a API leu o pedido, e o valor é que não
+    pode existir — "999.1.1.1" tem quatro números separados por ponto, e
+    nenhum IPv4 passa de 255. Quem confere é o módulo `ipaddress` do
+    Python, no controller; um `pattern` de JSON Schema para IPv6 é
+    ilegível e erra nos casos de borda.
+    """
+
+    code = "QIT001006"
+
+    def __init__(self, ip) -> None:
+        title = "Invalid IP Address"
+        http_status = 422
+        description = f"The IP {ip} is not a valid IPv4 or IPv6 address."
+        translation = "O IP informado não é um IPv4 nem um IPv6 válido."
+        super().__init__(title, self.code, http_status, description, translation)
+
+
 class NoActivePolicy(QIException):
     """Não há política ativa no banco: o motor não tem com que decidir.
 
@@ -83,4 +103,57 @@ class NoActivePolicy(QIException):
         http_status = 500
         description = "There is no active antifraud policy configured."
         translation = "Não existe política antifraude ativa configurada."
+        super().__init__(title, self.code, http_status, description, translation)
+
+
+class TwoFactorCompletedBeforePix(QIException):
+    """O 2FA diz que terminou antes de o Pix existir.
+
+    422 pelo mesmo motivo da data inexistente: o corpo tem o formato certo,
+    e o valor é que não pode ser verdade. Aceitar seria gravar na trilha um
+    evento anterior ao nascimento da análise.
+    """
+
+    code = "QIT001007"
+
+    def __init__(self, pix_id) -> None:
+        title = "Two factor completed before the Pix"
+        http_status = 422
+        description = f"The two factor of the Pix transaction with id {pix_id} cannot be completed before its transaction_date."
+        translation = f"O 2FA do Pix com id {pix_id} não pode terminar antes da data do Pix."
+        super().__init__(title, self.code, http_status, description, translation)
+
+
+class TwoFactorResultConflict(QIException):
+    """O retorno do 2FA já foi gravado, com o resultado oposto.
+
+    409: o 2FA termina uma vez só. O mesmo resultado de novo é retentativa
+    e devolve o dossiê; o resultado contrário reescreveria o desfecho de um
+    Pix que já saiu (ou que já foi barrado).
+    """
+
+    code = "QIT001008"
+
+    def __init__(self, pix_id, recorded_result) -> None:
+        title = "Two factor result already recorded"
+        http_status = 409
+        description = f"The two factor of the Pix transaction with id {pix_id} was already recorded as {recorded_result}."
+        translation = f"O retorno do 2FA do Pix com id {pix_id} já foi gravado como {recorded_result}."
+        super().__init__(title, self.code, http_status, description, translation)
+
+
+class PixNotAwaitingTwoFactor(QIException):
+    """A análise não pediu 2FA: não há retorno de 2FA para aplicar.
+
+    409: o Pix existe, e o estado dele é que não admite a troca. Um Pix
+    aprovado ou recusado direto pelo motor não vira outra coisa por fora.
+    """
+
+    code = "QIT001009"
+
+    def __init__(self, pix_id, status) -> None:
+        title = "Pix transaction is not awaiting two factor"
+        http_status = 409
+        description = f"The analysis of the Pix transaction with id {pix_id} is {status}, not two_factor_required."
+        translation = f"A análise do Pix com id {pix_id} está como {status}, e não como two_factor_required."
         super().__init__(title, self.code, http_status, description, translation)

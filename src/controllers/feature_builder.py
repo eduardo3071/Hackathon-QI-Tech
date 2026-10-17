@@ -2,7 +2,10 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from constants import LOCAL_TIMEZONE
+from controllers.decision import STEP_UP_POSSIBLE_SCAM
+from controllers.device_trust import DeviceTrust
 from controllers.features import PixFeatures
+from utils.geo import haversine_km
 from controllers.rules.policy_parameters import PolicyParameters
 from database import Context
 from models import Account, AnalysisStatus
@@ -47,11 +50,14 @@ class FeatureBuilder:
             max_night_approved_amount = profile.max_night_approved_amount
 
         pair_approved_count = 0
+        pair_scam_step_up_count = 0
         if pair is not None:
             pair_approved_count = pair.approved_count
+            pair_scam_step_up_count = pair.scam_step_up_count
 
+        last_location = self._last_location(pix, profile)
         night = self._night(pix, local_date, params.of("LIMITE.noturno"))
-        velocity = self._velocity(payer_document, transaction_date, params.of("RITMO.velocidade"))
+        velocity = self._velocity(pix, params.of("RITMO.velocidade"))
 
         return PixFeatures(
             amount=pix["amount"],
@@ -62,8 +68,15 @@ class FeatureBuilder:
             payee_type=pix["payee_type"],
             payer_markers=self._markers(payer_document, transaction_date),
             payee_markers=self._markers(payee_document, transaction_date),
-            device_known=device_owner is not None and device_owner.first_approved_pix_id is not None,
-            unregistered_devices_day_amount=self._unregistered_devices_day_amount(
+            payer_known=self.pix_feature_repository.payer_has_pix(payer_document),
+            payer_account_age_days=max(0, (transaction_date - pix["source_account"]["opening_date"]).days),
+            device_trusted=DeviceTrust.is_trusted(
+                device_owner, transaction_date, params.of("LIMITE.aparelho_nao_cadastrado")
+            ),
+            payer_has_trusted_device=self._payer_has_trusted_device(
+                payer_document, transaction_date, params.of("LIMITE.aparelho_nao_cadastrado")
+            ),
+            untrusted_devices_day_amount=self._untrusted_devices_day_amount(
                 payer_document, transaction_date, local_date, params.of("LIMITE.aparelho_nao_cadastrado")
             ),
             is_night=night["is_night"],
@@ -71,13 +84,42 @@ class FeatureBuilder:
             max_night_approved_amount=max_night_approved_amount,
             velocity_attempts=velocity["attempts"],
             velocity_amount=velocity["amount"],
+            fractioning_window_amounts=self._fractioning_window_amounts(pix, params.of("RITMO.fracionamento")),
             profile_amounts=self._profile_amounts(profile, transaction_date, params.of("PERFIL.valor")),
             pair_approved_count=pair_approved_count,
+            pair_scam_step_up_count=pair_scam_step_up_count,
+            device_distinct_payers=self._device_distinct_payers(
+                pix, device, params.of("QUEM_OPERA.aparelho_compartilhado")
+            ),
+            ip_distinct_payers=self._ip_distinct_payers(pix, params.of("QUEM_OPERA.ip_compartilhado")),
+            has_geolocation=pix["latitude"] is not None,
+            channel=pix["channel"],
+            channel_used_before=self._channel_used_before(pix, params.of("QUEM_OPERA.canal_incomum")),
+            last_location_distance_km=last_location["distance_km"],
+            last_location_hours=last_location["hours"],
+            zone_known_locations=len(profile.recent_locations) if profile is not None else 0,
+            zone_nearest_km=self._zone_nearest_km(pix, profile),
             payee_account_age_days=max(0, (transaction_date - destination_account.opening_date).days),
             payee_prior_approved_credits=self.pix_feature_repository.count_credits(
                 destination_account.id, AnalysisStatus.APPROVED
             ),
             payee_distinct_payers=self._distinct_payers(pix, params.of("CONTA_RECEBEDORA.fan_in")),
+            payee_prior_scam_step_ups=self._prior_scam_step_ups(
+                pix, destination_account, params.of("CONTA_RECEBEDORA.suspeita_anterior")
+            ),
+            payee_days_without_movement=self._payee_days_without_movement(pix, destination_account),
+            payee_new_account_institutions=self._payee_new_account_institutions(
+                pix, params.of("CONTA_RECEBEDORA.varias_instituicoes")
+            ),
+            payer_distinct_payees_24h=self.pix_feature_repository.count_distinct_payees(
+                payer_document, transaction_date - timedelta(hours=24), transaction_date
+            ),
+            payer_recent_third_party_credits=self._recent_third_party_credits(
+                pix, params.of("RASTRO.repasse_rapido")
+            ),
+            payee_marked_sender_hop=self._marked_sender_hop(
+                pix, params.of("RASTRO.proximidade_marcada"), params.of("MARCACAO.lista")
+            ),
         )
 
     def _markers(self, document_number: str, transaction_date: datetime) -> list:
@@ -93,14 +135,16 @@ class FeatureBuilder:
 
         return markers
 
-    def _unregistered_devices_day_amount(self, payer_document, transaction_date, local_date, parameters):
-        """Quanto este pagador já mandou HOJE (dia de Brasília) de aparelhos não cadastrados."""
+    def _untrusted_devices_day_amount(self, payer_document, transaction_date, local_date, parameters):
+        """Quanto este pagador já mandou HOJE (dia de Brasília), aprovado, de aparelhos não confiáveis."""
         if parameters is None:
             return None
 
         day_start = local_date.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        return self.pix_feature_repository.sum_first_approved_per_device(payer_document, day_start, transaction_date)
+        return self.pix_feature_repository.sum_by_device_trust(
+            payer_document, day_start, transaction_date, False, AnalysisStatus.APPROVED
+        )
 
     def _night(self, pix: dict, local_date: datetime, parameters) -> dict:
         """Se o Pix é noturno e quanto o pagador já mandou PF→PF nesta noite.
@@ -131,14 +175,25 @@ class FeatureBuilder:
         )
         return {"is_night": True, "amount": amount}
 
-    def _velocity(self, payer_document: str, transaction_date: datetime, parameters) -> dict:
+    def _velocity(self, pix: dict, parameters) -> dict:
+        """Tentativas anteriores do pagador na janela, e quanto elas somam.
+
+        O mesmo Pix refeito com `id` novo — mesmo recebedor, mesmo valor —
+        conta como UMA tentativa: é o cliente que tomou um 2FA e refez o
+        Pix, e contar de novo o empurraria para a recusa. Por isso a
+        contagem é de pares (recebedor, valor) distintos, e o par deste Pix
+        sai da conta (a regra soma o Pix atual à vista, "anteriores + 1").
+        """
         if parameters is None:
             return {"attempts": None, "amount": None}
 
-        window_start = transaction_date - timedelta(minutes=parameters["window_minutes"])
-        attempts, amount = self.pix_feature_repository.count_attempts(payer_document, window_start, transaction_date)
+        window_start = pix["transaction_date"] - timedelta(minutes=parameters["window_minutes"])
+        groups = set(
+            self.pix_feature_repository.attempt_groups(pix["payer_document"], window_start, pix["transaction_date"])
+        )
+        groups.discard((pix["payee_document"], pix["amount"]))
 
-        return {"attempts": attempts, "amount": amount}
+        return {"attempts": len(groups), "amount": sum(amount for _payee, amount in groups)}
 
     def _profile_amounts(self, profile, transaction_date: datetime, parameters):
         """Os valores aprovados do pagador dentro da janela do perfil (90 dias)."""
@@ -176,3 +231,147 @@ class FeatureBuilder:
         payers.add(pix["payer_document"])
 
         return len(payers)
+
+    def _prior_scam_step_ups(self, pix: dict, destination_account: Account, parameters):
+        """Quantas vezes este pagador já tomou 2FA por suspeita de golpe para esta conta, na janela."""
+        if parameters is None:
+            return None
+
+        window_start = pix["transaction_date"] - timedelta(days=parameters["window_days"])
+
+        return self.pix_feature_repository.count_step_ups(
+            pix["payer_document"], destination_account.id, window_start, pix["transaction_date"], STEP_UP_POSSIBLE_SCAM
+        )
+
+    def _recent_third_party_credits(self, pix: dict, parameters):
+        """Quanto o pagador recebeu de terceiros, aprovado, na janela que antecede este Pix."""
+        if parameters is None:
+            return None
+
+        window_start = pix["transaction_date"] - timedelta(minutes=parameters["window_minutes"])
+
+        return self.pix_feature_repository.sum_third_party_credits(
+            pix["payer_document"], window_start, pix["transaction_date"], AnalysisStatus.APPROVED
+        )
+
+    def _device_distinct_payers(self, pix: dict, device, parameters):
+        """CPFs pagadores distintos neste aparelho na janela, contando o pagador deste Pix."""
+        if parameters is None:
+            return None
+
+        window_start = pix["transaction_date"] - timedelta(days=parameters["window_days"])
+
+        payers = set(self.pix_feature_repository.distinct_payers_on_device(device.id, window_start, pix["transaction_date"]))
+        payers.add(pix["payer_document"])
+
+        return len(payers)
+
+    def _last_location(self, pix: dict, profile) -> dict:
+        """Distância e tempo até o último Pix aprovado com geolocalização deste pagador."""
+        if pix["latitude"] is None or profile is None or profile.last_geolocation_at is None:
+            return {"distance_km": None, "hours": None}
+
+        distance_km = haversine_km(
+            float(profile.last_latitude), float(profile.last_longitude), float(pix["latitude"]), float(pix["longitude"])
+        )
+        hours = (pix["transaction_date"] - profile.last_geolocation_at).total_seconds() / 3600
+
+        return {"distance_km": round(distance_km, 3), "hours": hours}
+
+    def _channel_used_before(self, pix: dict, parameters):
+        """Se o pagador já teve um Pix aprovado por este canal."""
+        if parameters is None:
+            return None
+
+        return self.pix_feature_repository.payer_used_channel(
+            pix["payer_document"], pix["channel"], AnalysisStatus.APPROVED
+        )
+
+    def _ip_distinct_payers(self, pix: dict, parameters):
+        """CPFs pagadores distintos neste IP na janela, contando o pagador deste Pix."""
+        if parameters is None:
+            return None
+
+        window_start = pix["transaction_date"] - timedelta(minutes=parameters["window_minutes"])
+
+        payers = set(self.pix_feature_repository.distinct_payers_on_ip(pix["ip"], window_start, pix["transaction_date"]))
+        payers.add(pix["payer_document"])
+
+        return len(payers)
+
+    def _fractioning_window_amounts(self, pix: dict, parameters):
+        """Os valores das tentativas anteriores do pagador na janela, como a velocidade os conta.
+
+        O mesmo Pix refeito com `id` novo (mesmo recebedor, mesmo valor)
+        entra uma vez só, como na velocidade: refazer o Pix não é picar.
+        """
+        if parameters is None:
+            return None
+
+        window_start = pix["transaction_date"] - timedelta(minutes=parameters["window_minutes"])
+        groups = set(
+            self.pix_feature_repository.attempt_groups(pix["payer_document"], window_start, pix["transaction_date"])
+        )
+        groups.discard((pix["payee_document"], pix["amount"]))
+
+        return sorted(amount for _payee, amount in groups)
+
+    def _payee_days_without_movement(self, pix: dict, destination_account: Account):
+        """Há quantos dias a conta destino não recebia nada aprovado na nossa base (None: nunca recebeu)."""
+        last_credit_at = self.pix_feature_repository.last_credit_before(
+            destination_account.id, pix["transaction_date"], AnalysisStatus.APPROVED
+        )
+        if last_credit_at is None:
+            return None
+
+        return (pix["transaction_date"] - last_credit_at).days
+
+    def _marked_sender_hop(self, pix: dict, parameters, marker_parameters):
+        """A quantos saltos o recebedor está de quem tem marcação de fraude vigente.
+
+        "Vigente" é o mesmo da Regra 1: a marcação própria sempre; a de
+        outro PSP, dentro da janela do DICT.
+        """
+        if parameters is None or marker_parameters is None:
+            return None
+
+        end = pix["transaction_date"]
+
+        return self.pix_feature_repository.nearest_marked_sender_hop(
+            pix["payee_document"],
+            end - timedelta(hours=parameters["window_hours"]),
+            end,
+            AnalysisStatus.APPROVED,
+            parameters["max_hops"],
+            end - timedelta(days=marker_parameters["third_party_window_days"]),
+        )
+
+    def _payee_new_account_institutions(self, pix: dict, parameters):
+        """Em quantas instituições o recebedor abriu conta na janela — a conta destino deste Pix inclusa."""
+        if parameters is None:
+            return None
+
+        end = pix["transaction_date"]
+
+        return self.pix_feature_repository.count_institutions_with_accounts_opened(
+            pix["payee_document"], end - timedelta(days=parameters["max_account_age_days"]), end
+        )
+
+    def _zone_nearest_km(self, pix: dict, profile):
+        """A distância deste Pix até o local conhecido mais próximo do pagador."""
+        if pix["latitude"] is None or profile is None or not profile.recent_locations:
+            return None
+
+        distances = [
+            haversine_km(location["latitude"], location["longitude"], float(pix["latitude"]), float(pix["longitude"]))
+            for location in profile.recent_locations
+        ]
+
+        return round(min(distances), 3)
+
+    def _payer_has_trusted_device(self, payer_document: str, transaction_date: datetime, parameters) -> bool:
+        """Se o pagador tem ALGUM aparelho confiável: enquanto não tem, o motor ainda está aprendendo quem ele é."""
+        return any(
+            DeviceTrust.is_trusted(device_owner, transaction_date, parameters)
+            for device_owner in self.device_owner_repository.list_by_document(payer_document)
+        )

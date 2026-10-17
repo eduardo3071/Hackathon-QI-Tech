@@ -94,7 +94,8 @@
         },
         "ip": {
           "type": "string",
-          "pattern": "^(((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)|(?=[0-9A-Fa-f:.]*:)[0-9A-Fa-f:.]{2,45})$"
+          "minLength": 1,
+          "maxLength": 45
         },
         "geolocation": {
           "type": "object",

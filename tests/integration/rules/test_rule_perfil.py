@@ -125,3 +125,41 @@ class TestRulePerfilValor:
         )
 
         assert reason_for(response, "PERFIL.valor")["observed"]["history_size"] == 5
+
+
+class TestRulePerfilValorSegundoDegrau:
+    """Regra 4 — PERFIL.valor graduado: muito fora do perfil é mais que um aviso.
+
+    Com 10 vezes a mediana ou mais, acima de R$ 1.000, para um destino
+    novo e do aparelho confiável de sempre, o sinal pontua golpe no valor
+    do corte de golpe: 2FA com aviso de golpe, e não só o aviso. Entre 5 e
+    10 vezes, o primeiro degrau continua: aprova com aviso.
+    """
+
+    def _payer_with_median_200(self) -> dict:
+        """Cinco Pix de R$ 200, um por dia, do mesmo aparelho: mediana R$ 200, aparelho confiável."""
+        context = {"payer_document": RandomGenerator.generate_cpf(), "device_id": f"dvc-{uuid4().hex[:12]}"}
+        Scenario.build_history(**context, amounts=[20000] * 5, first_date=HISTORY_START)
+
+        return context
+
+    def test_fifteen_times_the_median_to_a_new_destination_requires_two_factor_with_scam_warning(self):
+        context = self._payer_with_median_200()
+
+        response = Scenario.send(**context, amount=300000, transaction_date=DAY)
+
+        assert response["status"] == "two_factor_required"
+        assert response["metadata"]["step_up_reason"] == "possible_scam"
+        assert response["metadata"]["scam_warning"] is True
+        reason = reason_for(response, "PERFIL.valor")
+        assert reason["typology"] == "app"
+        assert reason["threshold"]["high_median_multiple"] == 200000
+
+    def test_seven_and_a_half_times_the_median_stays_approved_with_warning(self):
+        context = self._payer_with_median_200()
+
+        response = Scenario.send(**context, amount=150000, transaction_date=DAY)
+
+        assert response["status"] == "approved"
+        assert response["metadata"]["recommended_action"] == "warn"
+        assert reason_for(response, "PERFIL.valor")["typology"] == "app"

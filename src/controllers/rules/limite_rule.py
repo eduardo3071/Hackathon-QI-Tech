@@ -1,23 +1,20 @@
 from controllers.features import PixFeatures
 from controllers.rules.base_rule import BaseRule
 from controllers.rules.policy_parameters import PolicyParameters
-from controllers.rules.signal_result import APP, ATO, MULE, PASS, TWO_FACTOR, SignalResult
+from controllers.rules.perfil_rule import VALUE as PROFILE_VALUE
+from controllers.rules.signal_result import ATO, NOT_EVALUATED, PASS, TWO_FACTOR, SignalResult
 from models import Account
+from utils.money import format_brl
 
 UNREGISTERED_DEVICE = "LIMITE.aparelho_nao_cadastrado"
 NIGHT = "LIMITE.noturno"
-
-
-def format_brl(amount_in_cents: int) -> str:
-    """15000 → "R$ 150,00". Só para as mensagens: o número de verdade viaja em centavos."""
-    reais, cents = divmod(amount_in_cents, 100)
-    return f"R$ {reais:,}".replace(",", ".") + f",{cents:02d}"
+NO_GEOLOCATION = "LIMITE.sem_geolocalizacao"
 
 
 class LimiteRule(BaseRule):
     """Regra 2 — O valor cabe no limite deste contexto?
 
-    Os dois sinais daqui têm número de norma, e por isso decidem 2FA
+    Os sinais daqui são limites com base em norma, e por isso decidem 2FA
     sozinhos, sem passar pelos placares.
     """
 
@@ -28,6 +25,7 @@ class LimiteRule(BaseRule):
         self.signals = {
             UNREGISTERED_DEVICE: (0, self._evaluate_unregistered_device),
             NIGHT: (0, self._evaluate_night),
+            NO_GEOLOCATION: (1, self._evaluate_no_geolocation),
         }
 
     def _evaluate_unregistered_device(
@@ -35,21 +33,30 @@ class LimiteRule(BaseRule):
     ) -> SignalResult:
         """R$ 200 por Pix e R$ 1.000 por dia em aparelho não cadastrado (BCB, nov/2024).
 
-        O 2FA pedido aqui é o cadastro do aparelho que a norma prevê:
-        depois do primeiro Pix aprovado, o aparelho vira conhecido. Vale
+        "Cadastrado", aqui, é o aparelho CONFIÁVEL: 2 Pix aprovados, o
+        primeiro há 24 h ou mais (veja o FeatureBuilder). O teto diário
+        soma todos os Pix aprovados hoje de aparelhos não confiáveis. Vale
         também na mesma titularidade — o celular roubado transfere para
         onde o ladrão quiser, inclusive para outra conta da vítima.
         """
         max_per_pix = parameters["max_amount_per_pix"]
         max_per_day = parameters["max_amount_per_day"]
-        threshold = {"max_amount_per_pix": max_per_pix, "max_amount_per_day": max_per_day}
+        threshold = {
+            "max_amount_per_pix": max_per_pix,
+            "max_amount_per_day": max_per_day,
+            "trusted_min_approved_pix": parameters["trusted_min_approved_pix"],
+            "trusted_min_hours": parameters["trusted_min_hours"],
+        }
 
-        if features.device_known:
+        if features.device_trusted:
             return self.result(
-                UNREGISTERED_DEVICE, 0, PASS, "Aparelho já cadastrado para este pagador.", threshold=threshold
+                UNREGISTERED_DEVICE, 0, PASS, "Aparelho confiável para este pagador.", threshold=threshold
             )
 
-        day_amount = features.unregistered_devices_day_amount + features.amount
+        if self._is_in_learning_period(features, parameters, params):
+            return self._evaluate_learning_period(features, parameters, params)
+
+        day_amount = features.untrusted_devices_day_amount + features.amount
         observed = {"amount": features.amount, "day_amount": day_amount}
 
         if features.amount > max_per_pix:
@@ -57,7 +64,7 @@ class LimiteRule(BaseRule):
                 UNREGISTERED_DEVICE,
                 0,
                 TWO_FACTOR,
-                f"Aparelho sem Pix aprovado deste pagador e valor de {format_brl(features.amount)}, "
+                f"Aparelho ainda não confiável para este pagador e valor de {format_brl(features.amount)}, "
                 f"acima dos {format_brl(max_per_pix)} por Pix permitidos sem cadastro.",
                 typology=ATO,
                 observed=observed,
@@ -69,7 +76,7 @@ class LimiteRule(BaseRule):
                 UNREGISTERED_DEVICE,
                 0,
                 TWO_FACTOR,
-                f"Aparelhos não cadastrados somam {format_brl(day_amount)} hoje, "
+                f"Aparelhos não confiáveis somam {format_brl(day_amount)} hoje, "
                 f"acima dos {format_brl(max_per_day)} por dia permitidos sem cadastro.",
                 typology=ATO,
                 observed=observed,
@@ -80,7 +87,82 @@ class LimiteRule(BaseRule):
             UNREGISTERED_DEVICE,
             0,
             PASS,
-            "Aparelho não cadastrado, mas dentro dos limites por Pix e por dia.",
+            "Aparelho ainda não confiável, mas dentro dos limites por Pix e por dia.",
+            observed=observed,
+            threshold=threshold,
+        )
+
+    def _is_in_learning_period(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> bool:
+        """O período de aprendizado: o pagador ainda não tem nenhum aparelho confiável, e a conta pagadora é antiga.
+
+        Dura enquanto o motor não aprendeu o aparelho do cliente — não só
+        no primeiro Pix. Acaba quando ALGUM aparelho do pagador fica
+        confiável: daí em diante, um aparelho novo é o caso do celular
+        roubado, e volta aos R$ 200. O limite de partida vem do
+        PERFIL.valor: se ele estiver desligado, vale a regra normal.
+        """
+        return (
+            not features.payer_has_trusted_device
+            and features.payer_account_age_days >= parameters["new_client_min_account_age_days"]
+            and params.is_enabled(PROFILE_VALUE)
+        )
+
+    def _evaluate_learning_period(
+        self, features: PixFeatures, parameters: dict, params: PolicyParameters
+    ) -> SignalResult:
+        """No período de aprendizado, o limite por Pix é o de partida (R$ 1.000), dentro do teto diário do BCB.
+
+        Na avaliação o banco nasce vazio e todo cliente chega num aparelho
+        "novo". Em produção o motor nasceria com a carga do histórico; isto
+        evita tratar todo cliente como fraude nos primeiros dias sem abrir
+        mão dos limites: acima do limite de partida, ou passando dos
+        R$ 1.000 por dia em aparelhos não confiáveis, 2FA.
+        """
+        fallback_amount = params.of(PROFILE_VALUE)["fallback_amount"]
+        max_per_day = parameters["max_amount_per_day"]
+        day_amount = features.untrusted_devices_day_amount + features.amount
+
+        observed = {
+            "amount": features.amount,
+            "day_amount": day_amount,
+            "payer_account_age_days": features.payer_account_age_days,
+        }
+        threshold = {
+            "fallback_amount": fallback_amount,
+            "max_amount_per_day": max_per_day,
+            "new_client_min_account_age_days": parameters["new_client_min_account_age_days"],
+        }
+
+        if features.amount > fallback_amount:
+            return self.result(
+                UNREGISTERED_DEVICE,
+                0,
+                TWO_FACTOR,
+                f"Pagador ainda sem aparelho confiável no motor, com Pix de {format_brl(features.amount)}, acima do "
+                f"limite de partida de {format_brl(fallback_amount)}.",
+                typology=ATO,
+                observed=observed,
+                threshold=threshold,
+            )
+
+        if day_amount > max_per_day:
+            return self.result(
+                UNREGISTERED_DEVICE,
+                0,
+                TWO_FACTOR,
+                f"Pagador ainda sem aparelho confiável no motor: os Pix de hoje somam {format_brl(day_amount)}, acima "
+                f"dos {format_brl(max_per_day)} por dia permitidos em aparelho não cadastrado.",
+                typology=ATO,
+                observed=observed,
+                threshold=threshold,
+            )
+
+        return self.result(
+            UNREGISTERED_DEVICE,
+            0,
+            NOT_EVALUATED,
+            "O motor ainda não tem histórico deste pagador (período de aprendizado): conta pagadora com "
+            f"{features.payer_account_age_days} dias, valor dentro do limite de partida e do teto diário.",
             observed=observed,
             threshold=threshold,
         )
@@ -90,9 +172,8 @@ class LimiteRule(BaseRule):
 
         O motor não recebe o limite noturno que o cliente configurou no
         app. Quem já teve aprovado um Pix noturno maior que a soma desta
-        noite mostrou que o limite dele é maior, e passa. Fora disso, 2FA;
-        e se houver cara de golpe ou de conta laranja, a decisão recusa
-        (`escalates_with`).
+        noite mostrou que o limite dele é maior, e passa. Fora disso, 2FA
+        de limite: confirmação no app, sem typology de fraude.
         """
         max_night_amount = parameters["max_night_amount"]
         threshold = {
@@ -122,9 +203,46 @@ class LimiteRule(BaseRule):
                 f"{format_brl(max_night_amount)} e do maior Pix noturno já aprovado deste pagador.",
                 observed=observed,
                 threshold=threshold,
-                escalates_with=(APP, MULE),
             )
 
         return self.result(
             NIGHT, 0, PASS, "Soma noturna dentro do limite deste pagador.", observed=observed, threshold=threshold
+        )
+
+    def _evaluate_no_geolocation(
+        self, features: PixFeatures, parameters: dict, params: PolicyParameters
+    ) -> SignalResult:
+        """Geolocalização desligada: limite reduzido (faculdade da IN BCB 669).
+
+        Sem o local, a viagem impossível e a zona habitual ficam sem dado.
+        Até o limite reduzido o Pix segue; acima dele, 2FA de limite —
+        confirmação no app, sem tipologia de fraude: é limite, não suspeita.
+        """
+        max_amount = parameters["max_amount_without_geolocation"]
+        observed = {"amount": features.amount, "has_geolocation": features.has_geolocation}
+        threshold = {"max_amount_without_geolocation": max_amount}
+
+        if features.has_geolocation:
+            return self.result(
+                NO_GEOLOCATION, 1, PASS, "Pix com geolocalização.", observed=observed, threshold=threshold
+            )
+
+        if features.amount > max_amount:
+            return self.result(
+                NO_GEOLOCATION,
+                1,
+                TWO_FACTOR,
+                f"Pix sem geolocalização de {format_brl(features.amount)}, acima do limite reduzido de "
+                f"{format_brl(max_amount)} para quem não compartilha o local.",
+                observed=observed,
+                threshold=threshold,
+            )
+
+        return self.result(
+            NO_GEOLOCATION,
+            1,
+            PASS,
+            "Pix sem geolocalização, dentro do limite reduzido.",
+            observed=observed,
+            threshold=threshold,
         )

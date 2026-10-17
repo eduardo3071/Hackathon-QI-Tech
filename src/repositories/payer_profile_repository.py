@@ -9,6 +9,11 @@ from models import PayerProfile
 # da política.
 PROFILE_HISTORY_SIZE = 50
 
+# Quantos locais de Pix aprovados o perfil guarda para a zona habitual.
+# Também é tamanho de armazenamento: o raio e o mínimo de locais são da
+# política.
+LOCATION_HISTORY_SIZE = 20
+
 
 class PayerProfileRepository:
     def __init__(self, context: Context) -> None:
@@ -26,6 +31,7 @@ class PayerProfileRepository:
                 recent_approved=[],
                 approved_count=0,
                 max_night_approved_amount=0,
+                recent_locations=[],
             )
             self.session.add(profile)
 
@@ -51,3 +57,12 @@ class PayerProfileRepository:
         profile.last_latitude = latitude
         profile.last_longitude = longitude
         profile.last_geolocation_at = seen_at
+
+    def add_location(self, profile: PayerProfile, latitude, longitude, seen_at: datetime) -> None:
+        """Acrescenta o local de um Pix aprovado e descarta os mais antigos além dos 20 (lista TROCADA, como acima)."""
+        recent_locations = profile.recent_locations + [
+            {"latitude": float(latitude), "longitude": float(longitude), "at": seen_at.isoformat()}
+        ]
+        recent_locations.sort(key=lambda location: datetime.fromisoformat(location["at"]))
+
+        profile.recent_locations = recent_locations[-LOCATION_HISTORY_SIZE:]

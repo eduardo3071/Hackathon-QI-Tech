@@ -146,7 +146,7 @@ class TestPixTransactionCreateSchema:
             (("source_account", "owner", "document_number"), "123456789"),
             (("destination_account", "owner", "document_number"), "abc.def.ghi-jk"),
             (("destination_account", "participant"), "6070119"),
-            (("source", "ip"), "não é ip"),
+            (("source", "ip"), 198511002),
             (("source", "geolocation"), {"latitude": -95, "longitude": -46.65}),
             (("source", "geolocation"), {"latitude": -23.56}),
             (("id",), ""),
@@ -201,6 +201,32 @@ class TestPixTransactionCreateUnprocessable:
 
             assert status == 422, f"aceitou data impossível em {'.'.join(field_path)}"
             assert response["code"] == "QIT001004"
+
+
+class TestPixTransactionCreateIp:
+    def test_refuses_text_that_is_not_an_ip(self):
+        """O IP chega como texto, e o schema só cobra que seja texto: quem diz se é IP é o `ipaddress`.
+
+        422, e não 400, pelo mesmo motivo do CPF: a API leu o pedido, e o
+        valor é que não pode existir — 999.1.1.1 tem a cara de um IPv4.
+        """
+        for invalid_ip in ["não é ip", "999.1.1.1", "198.51.100", "2001:db8::zz"]:
+            payload = PayloadGenerator.create_pix_payload()
+            payload["source"]["ip"] = invalid_ip
+
+            status, response = RequestGenerator.POST_pix_transaction(payload)
+
+            assert status == 422, f"aceitou o IP {invalid_ip!r}"
+            assert response["code"] == "QIT001006"
+
+    def test_accepts_ipv4_and_ipv6(self):
+        for valid_ip in ["198.51.100.23", "2001:db8::1"]:
+            payload = PayloadGenerator.create_pix_payload()
+            payload["source"]["ip"] = valid_ip
+
+            status, _response = RequestGenerator.POST_pix_transaction(payload)
+
+            assert status == 201, f"recusou o IP {valid_ip!r}"
 
 
 class TestPixTransactionCreateToken:

@@ -136,8 +136,12 @@ CREATE INDEX pix_transaction_source_date ON pix_transaction (source_account_id, 
 CREATE INDEX pix_transaction_destination_date ON pix_transaction (destination_account_id, transaction_date);
 
 
--- A decisão. Nasce final e nunca muda (append-only): o contrato não tem
--- retorno do 2FA, então não há troca de status para registrar.
+-- A decisão. O que foi decidido (placares, motivo e método do 2FA,
+-- features) nasce aqui e nunca muda. O status muda UMA única vez, pelo
+-- retorno do 2FA (`PATCH /pix/transaction/{id}`): `two_factor_required`
+-- vira `approved` ou `rejected`. Cada status, inclusive o primeiro, é uma
+-- linha em `analysis_status_event`, e é lá que o status inicial continua
+-- gravado depois da troca.
 CREATE TABLE analysis(
     id                              SERIAL PRIMARY KEY,
     analysis_key                    CHAR(36) NOT NULL,
@@ -146,14 +150,30 @@ CREATE TABLE analysis(
     policy_version_id               INTEGER NOT NULL REFERENCES policy_version(id),
     typology                        VARCHAR(30),
     recommended_action              VARCHAR(20) NOT NULL CHECK (
-                                        recommended_action IN ('none', 'warn', 'step_up', 'hold_timer', 'block')
+                                        recommended_action IN ('none', 'warn', 'step_up', 'block')
                                     ),
+    -- Só no two_factor_required: POR QUE o 2FA, COMO, e se a tela mostra
+    -- aviso de golpe. Fora dele, os dois primeiros ficam nulos e o aviso falso.
+    step_up_reason                  VARCHAR(20) CHECK (
+                                        step_up_reason IN ('account_takeover', 'possible_scam', 'limit')
+                                    ),
+    step_up_method                  VARCHAR(30) CHECK (
+                                        step_up_method IN ('face_liveness', 'in_app_confirmation')
+                                    ),
+    scam_warning                    BOOLEAN NOT NULL,
     score_ato                       INTEGER NOT NULL,
     score_app                       INTEGER NOT NULL,
     score_mule                      INTEGER NOT NULL,
     path                            VARCHAR(10) NOT NULL CHECK (path IN ('fast', 'deep')),
+    -- Se o aparelho era confiável NO MOMENTO deste Pix. Fica gravado porque
+    -- a confiança muda com o tempo, e o teto diário de R$ 1.000 soma os Pix
+    -- que saíram de aparelho não confiável — no momento em que saíram.
+    device_trusted                  BOOLEAN NOT NULL,
     layers                          SMALLINT[] NOT NULL,
     features                        JSONB NOT NULL,
+    -- Quanto o motor levou para decidir, em milissegundos: da chegada do
+    -- Pix ao controller até a decisão pronta (inclui a espera na trava).
+    latency_ms                      INTEGER NOT NULL CHECK (latency_ms >= 0),
     created_at                      TIMESTAMPTZ NOT NULL DEFAULT(NOW()),
     UNIQUE(analysis_key),
     UNIQUE(pix_transaction_id)
@@ -180,6 +200,28 @@ CREATE TABLE analysis_rule_result(
 
 CREATE INDEX analysis_rule_result_analysis ON analysis_rule_result (analysis_id);
 
+-- Trilha de status da análise, no padrão do `sample_entity_status_event`
+-- do Base Service. Toda análise grava um evento ao nascer (`from_status_id`
+-- nulo → status decidido, na data do Pix) e, se houver retorno do 2FA, um
+-- segundo (`two_factor_required` → `approved` ou `rejected`, na data em que
+-- o 2FA terminou). Só se acrescenta: nenhum evento é alterado ou apagado.
+-- Se a cadeia de hashes da Fase 3 entrar, ela cobre a análise original, e
+-- os eventos ficam fora dela, só acrescentados.
+--
+-- O índice único é a regra "um nascimento e no máximo uma troca" escrita
+-- no banco: um segundo retorno do 2FA para a mesma análise não grava.
+CREATE TABLE analysis_status_event(
+    id                              SERIAL PRIMARY KEY,
+    analysis_id                     INTEGER NOT NULL REFERENCES analysis(id),
+    from_status_id                  INTEGER REFERENCES analysis_status(id),
+    to_status_id                    INTEGER NOT NULL REFERENCES analysis_status(id),
+    event_datetime                  TIMESTAMPTZ NOT NULL,
+    created_at                      TIMESTAMPTZ NOT NULL DEFAULT(NOW())
+);
+
+CREATE UNIQUE INDEX analysis_status_event_single_change
+    ON analysis_status_event (analysis_id, (from_status_id IS NULL));
+
 
 -- ─────────────────────────────────────────────────────────────────
 -- Tabelas agregadas do caminho rápido. Atualizadas no MESMO commit de
@@ -197,6 +239,10 @@ CREATE TABLE payer_profile(
     recent_approved                 JSONB NOT NULL,
     approved_count                  INTEGER NOT NULL,
     max_night_approved_amount       BIGINT NOT NULL,
+    -- Os locais dos últimos 20 Pix aprovados com geolocalização, como
+    -- [{"latitude": -23.56, "longitude": -46.65, "at": "..."}]: a zona
+    -- habitual do QUEM_OPERA.fora_da_zona.
+    recent_locations                JSONB NOT NULL,
     last_latitude                   NUMERIC(9, 6),
     last_longitude                  NUMERIC(9, 6),
     last_geolocation_at             TIMESTAMPTZ,
@@ -214,23 +260,35 @@ CREATE TABLE payer_payee_pair(
     last_seen_at                    TIMESTAMPTZ NOT NULL,
     approved_count                  INTEGER NOT NULL,
     approved_amount                 BIGINT NOT NULL,
+    -- Quantas vezes o pagador confirmou um Pix para este destino depois de
+    -- um 2FA com aviso de golpe. Esses Pix entram no perfil, mas não em
+    -- `approved_count`: a vítima que confirma o golpe costuma pagar o mesmo
+    -- golpista de novo, e o destino não pode virar "recorrente" por isso.
+    scam_step_up_count              INTEGER NOT NULL,
     created_at                      TIMESTAMPTZ NOT NULL DEFAULT(NOW()),
     UNIQUE(payer_document_number, destination_account_id)
 );
 
--- Aparelho × documento: "este aparelho já fez Pix aprovado para esta pessoa?"
+-- Aparelho × documento: "este aparelho é confiável para esta pessoa?"
 --
--- Aparelho "cadastrado" = já tem Pix aprovado deste pagador. O primeiro
--- Pix aprovado de cada aparelho é, por definição, o único que saiu
--- enquanto ele NÃO era cadastrado — e é ele que conta no teto diário de
--- R$ 1.000 do BCB para aparelho não cadastrado. Por isso a coluna aponta
--- para o Pix, e não só guarda a data.
+-- Confiável = pelo menos 2 Pix aprovados deste pagador, o primeiro há pelo
+-- menos 24 h (parâmetros em LIMITE.aparelho_nao_cadastrado), OU biometria
+-- facial aprovada no retorno do 2FA (`face_liveness_passed_at`). Um Pix de
+-- R$ 10 aprovado não basta: senão, o ladrão "aquece" o aparelho com um Pix
+-- pequeno e o seguinte, grande, sai sem 2FA.
+--
+-- Biometria REPROVADA num 2FA por suspeita de invasão (`step_up_failed_at`)
+-- bloqueia a confiança por 24 h: nesse período o aparelho não é confiável, e
+-- nenhum Pix aprovado conta para torná-lo confiável.
 CREATE TABLE device_owner(
     id                              SERIAL PRIMARY KEY,
     device_id                       INTEGER NOT NULL REFERENCES device(id),
     document_number                 VARCHAR(14) NOT NULL,
     first_seen_at                   TIMESTAMPTZ NOT NULL,
-    first_approved_pix_id           INTEGER REFERENCES pix_transaction(id),
+    first_approved_at               TIMESTAMPTZ,
+    approved_count                  INTEGER NOT NULL,
+    face_liveness_passed_at         TIMESTAMPTZ,
+    step_up_failed_at               TIMESTAMPTZ,
     created_at                      TIMESTAMPTZ NOT NULL DEFAULT(NOW()),
     UNIQUE(device_id, document_number)
 );
@@ -244,9 +302,10 @@ CREATE TABLE device_owner(
 -- a origem de cada um está no README e em docs/pesquisa-fraude-pix.md.
 --
 -- Pontos e cortes dos placares (ato/app/mule) são estimativas do grupo:
--- o desenho é que um sinal de conta laranja forte (conta nova recebendo
--- o primeiro crédito fora do perfil, 60) recusa sozinho, e os fracos
--- (fan-in 40, conta nova 20) só recusam combinados.
+-- um sinal de conta laranja forte (conta nova recebendo o primeiro
+-- crédito fora do perfil, 60) chega ao corte e pede 2FA com aviso de
+-- golpe; recusar exige dois sinais de laranja diferentes (conta nova 20 +
+-- fan-in 40, por exemplo).
 -- ─────────────────────────────────────────────────────────────────
 INSERT INTO policy_version (version, ml_mode, is_active) VALUES
 ('2026.10.1', 'shadow', TRUE);
@@ -261,9 +320,13 @@ CROSS JOIN (VALUES
      '{"third_party_window_days": 90}'),
 
     -- Res. BCB 403/2024 e nota BCB 20231 (norma): R$ 200 por Pix e
-    -- R$ 1.000 por dia em aparelho não cadastrado.
+    -- R$ 1.000 por dia em aparelho não cadastrado. Estimativa: o aparelho
+    -- só vira confiável com 2 Pix aprovados, o primeiro há 24 h ou mais; o
+    -- cliente que o motor ainda não conhece, com conta pagadora de 180 dias
+    -- ou mais, vai até o limite de partida do perfil sem 2FA de aparelho; e
+    -- a biometria reprovada bloqueia a confiança do aparelho por 24 h.
     ('LIMITE.aparelho_nao_cadastrado',
-     '{"max_amount_per_pix": 20000, "max_amount_per_day": 100000}'),
+     '{"max_amount_per_pix": 20000, "max_amount_per_day": 100000, "trusted_min_approved_pix": 2, "trusted_min_hours": 24, "new_client_min_account_age_days": 180, "step_up_failed_block_hours": 24}'),
 
     -- Res. BCB 142/2021 (norma): R$ 1.000 entre 20h e 6h, PF para PF.
     ('LIMITE.noturno',
@@ -275,11 +338,19 @@ CROSS JOIN (VALUES
     ('RITMO.velocidade',
      '{"window_minutes": 10, "two_factor_count": 5, "reject_count": 10, "min_window_amount": 100000}'),
 
+    -- Estimativa: 3 ou mais Pix em 1 h, cada um entre 90 e 100 por cento de um
+    -- limite da política (R$ 200 do aparelho não cadastrado, R$ 1.000 do
+    -- noturno), pedem 2FA de limite.
+    ('RITMO.fracionamento',
+     '{"window_minutes": 60, "min_count": 3, "band_floor_percent": 90}'),
+
     -- Estimativa: acima do P95 e de 5x a mediana dos aprovados em 90 dias,
     -- com pelo menos 5 Pix; sem histórico, R$ 1.000 (entre o Pix médio
-    -- entre pessoas, R$ 273, e a fraude média, R$ 1.735).
+    -- entre pessoas, R$ 273, e a fraude média, R$ 1.735). Segundo degrau:
+    -- 10x a mediana ou mais e acima de R$ 1.000, para destino novo e do
+    -- aparelho confiável, pontua golpe no corte (60): 2FA com aviso.
     ('PERFIL.valor',
-     '{"window_days": 90, "min_history": 5, "percentile": 95, "median_multiplier": 5, "fallback_amount": 100000, "app_points": 40, "ato_points": 60}'),
+     '{"window_days": 90, "min_history": 5, "percentile": 95, "median_multiplier": 5, "fallback_amount": 100000, "app_points": 40, "ato_points": 60, "high_median_multiplier": 10, "high_min_amount": 100000, "high_app_points": 60}'),
 
     -- Estimativa: conta destino com menos de 30 dias (fator do art. 39-B da
     -- Res. BCB 147). Primeiro crédito fora do perfil pontua 60; só a
@@ -291,9 +362,92 @@ CROSS JOIN (VALUES
     ('CONTA_RECEBEDORA.fan_in',
      '{"window_minutes": 60, "min_distinct_payers": 5, "points": 40}'),
 
-    -- Estimativa: cortes dos placares e tempo limite da camada 2.
+    -- Estimativa: o pagador já tomou 2FA por suspeita de golpe para esta
+    -- conta nos últimos 90 dias e o valor está fora do perfil → pontua
+    -- golpe no valor do corte de golpe (60): o golpe repetido do falso
+    -- investimento volta a pedir confirmação com aviso.
+    ('CONTA_RECEBEDORA.suspeita_anterior',
+     '{"window_days": 90, "points": 60}'),
+
+    -- Estimativa: o pagador recebeu de terceiros nos últimos 60 min e
+    -- repassa 80 por cento ou mais disso. Pontua conta laranja no corte (60):
+    -- sozinho pede 2FA com aviso de golpe; com outro sinal de laranja,
+    -- recusa pela regra dos dois sinais.
+    ('RASTRO.repasse_rapido',
+     '{"window_minutes": 60, "min_forward_share_percent": 80, "points": 60}'),
+
+    -- Estimativa: 3 ou mais CPFs pagadores no mesmo aparelho em 30 dias é
+    -- a fazenda de contas. Pontua conta laranja no corte (60): sozinho
+    -- pede 2FA; com outro sinal de laranja, recusa.
+    ('QUEM_OPERA.aparelho_compartilhado',
+     '{"window_days": 30, "min_distinct_payers": 3, "points": 60}'),
+
+    -- Estimativa: mais de 900 km/h desde o último Pix aprovado com
+    -- geolocalização (acima de um avião comercial), ignorando menos de
+    -- 5 km (imprecisão do GPS). Pontua invasão no corte (60): biometria.
+    ('QUEM_OPERA.viagem_impossivel',
+     '{"max_speed_kmh": 900, "min_distance_km": 5, "points": 60}'),
+
+    -- IN BCB 669 (norma): a instituição pode adotar limite menor quando a
+    -- geolocalização está desligada. O valor de R$ 500 é estimativa.
+    ('LIMITE.sem_geolocalizacao',
+     '{"max_amount_without_geolocation": 50000}'),
+
+    -- Estimativa: canal que o pagador nunca usou num Pix aprovado, acima
+    -- do limite de partida do PERFIL.valor (R$ 1.000), pontua invasão
+    -- abaixo do corte (30): reforça outro sinal, não decide sozinho.
+    ('QUEM_OPERA.canal_incomum',
+     '{"points": 30}'),
+
+    -- Estimativa: 3 ou mais CPFs pagadores no mesmo IP em 1 h, SÓ com
+    -- aparelho não confiável (CGNAT põe muita gente no mesmo IP). Pontua
+    -- invasão abaixo do corte (20): nunca decide sozinho.
+    ('QUEM_OPERA.ip_compartilhado',
+     '{"window_minutes": 60, "min_distinct_payers": 3, "points": 20}'),
+
+    -- Estimativa: conta pagadora com menos de 30 dias mandando acima do
+    -- limite de partida (R$ 1.000) para destino novo. Pontua conta laranja
+    -- abaixo do corte (30): reforça outro sinal de laranja.
+    ('RASTRO.conta_pagadora_recente',
+     '{"max_account_age_days": 30, "points": 30}'),
+
+    -- Estimativa: destino que reaparece depois de 60 dias sem movimento na
+    -- nossa base (o motor não vê outros bancos). Pontua conta laranja
+    -- abaixo do corte (30): reforça outro sinal de laranja.
+    ('CONTA_RECEBEDORA.dormente',
+     '{"min_days_without_movement": 60, "points": 30}'),
+
+    -- Estimativa: nas últimas 24 h, o recebedor (PF) recebeu de documento
+    -- com marcação vigente. A 1 salto recusa (evidência dura); a 2 saltos
+    -- pontua conta laranja abaixo do corte (30). Consulta recursiva
+    -- limitada a 2 saltos.
+    ('RASTRO.proximidade_marcada',
+     '{"window_hours": 24, "reject_hops": 1, "max_hops": 2, "points": 30}'),
+
+    -- Estimativa: o mesmo CPF recebedor com contas abertas há menos de 30
+    -- dias em 2 ou mais ISPBs. Pontua conta laranja abaixo do corte (30).
+    ('CONTA_RECEBEDORA.varias_instituicoes',
+     '{"max_account_age_days": 30, "min_institutions": 2, "points": 30}'),
+
+    -- Estimativa (inspiração no Modo Rua do Nubank): Pix a mais de 50 km
+    -- de todos os locais dos últimos 20 Pix aprovados, acima de R$ 500,
+    -- pede biometria. Exige pelo menos 5 locais conhecidos.
+    ('QUEM_OPERA.fora_da_zona',
+     '{"radius_km": 50, "min_amount": 50000, "min_known_locations": 5}'),
+
+    -- Estimativa: corte no p99 do escore dos Pix legítimos do treino
+    -- (scripts/ml/train.py, semente 1). No modo ativo, acima do corte
+    -- pontua invasão, crescendo até 60 em +0,04 de escore: sozinho chega a
+    -- 2FA (biometria) e nunca recusa. No modo sombra (o padrão da política)
+    -- o escore só vai para o metadata.
+    ('ANOMALIA.ml',
+     '{"score_threshold": 0.61, "score_span": 0.04, "max_points": 60}'),
+
+    -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
+    -- por conta laranja exige o placar no corte E 2 sinais de laranja
+    -- diferentes: um sinal sozinho não é "risco claro".
     ('DECISAO.placares',
-     '{"ato_cut": 60, "app_cut": 60, "mule_cut": 60, "app_warn_cut": 30, "deep_layer_timeout_ms": 300}')
+     '{"ato_cut": 60, "app_cut": 60, "mule_cut": 60, "app_warn_cut": 30, "mule_min_distinct_signals": 2, "deep_layer_timeout_ms": 300}')
 ) AS parameter(signal_code, parameters)
 WHERE policy_version.version = '2026.10.1';
 

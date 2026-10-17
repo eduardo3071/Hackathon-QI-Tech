@@ -13,6 +13,7 @@ class PayerProfile(Base):
     recent_approved = Column(JSONB, nullable=False)
     approved_count = Column(Integer, nullable=False)
     max_night_approved_amount = Column(BigInteger, nullable=False)
+    recent_locations = Column(JSONB, nullable=False)
     last_latitude = Column(Numeric(9, 6), nullable=True)
     last_longitude = Column(Numeric(9, 6), nullable=True)
     last_geolocation_at = Column(DateTime(timezone=True), nullable=True)

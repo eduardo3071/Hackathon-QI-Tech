@@ -30,24 +30,71 @@ class PixFeatures:
     payee_markers: List[dict]
 
     # Regra 2 — aparelho e horário noturno
-    device_known: bool
-    unregistered_devices_day_amount: Optional[int]
+    payer_known: bool
+    payer_account_age_days: int
+    device_trusted: bool
+    payer_has_trusted_device: bool
+    untrusted_devices_day_amount: Optional[int]
     is_night: Optional[bool]
     night_person_to_person_amount: Optional[int]
     max_night_approved_amount: int
 
-    # Regra 3 — velocidade
+    # Regra 3 — velocidade (pares recebedor+valor distintos, sem o deste Pix)
     velocity_attempts: Optional[int]
     velocity_amount: Optional[int]
+    # Valores das tentativas anteriores na janela do fracionamento, um por
+    # par (recebedor, valor), sem o deste Pix.
+    fractioning_window_amounts: Optional[List[int]]
 
     # Regra 4 — perfil
     profile_amounts: Optional[List[int]]
     pair_approved_count: int
+    pair_scam_step_up_count: int
+
+    # Regra 5 — quem está operando
+    device_distinct_payers: Optional[int]
+    ip_distinct_payers: Optional[int]
+    has_geolocation: bool
+    channel: str
+    channel_used_before: Optional[bool]
+    # Até o último Pix APROVADO com geolocalização; None sem esse histórico.
+    # As horas podem ser zero ou negativas (Pix que chegou fora de ordem).
+    last_location_distance_km: Optional[float]
+    last_location_hours: Optional[float]
+    # Zona habitual: quantos locais de Pix aprovados o perfil conhece, e a
+    # distância deste Pix até o mais próximo deles (None sem geolocalização).
+    zone_known_locations: int
+    zone_nearest_km: Optional[float]
 
     # Regra 6 — conta recebedora
     payee_account_age_days: int
     payee_prior_approved_credits: int
     payee_distinct_payers: Optional[int]
+    payee_prior_scam_step_ups: Optional[int]
+    # Dias desde o último crédito aprovado que a conta destino recebeu NA
+    # NOSSA BASE; None se o motor nunca a viu receber.
+    payee_days_without_movement: Optional[int]
+    payee_new_account_institutions: Optional[int]
+
+    # Regra 8 — anomalia: para quantos destinos distintos o pagador mandou
+    # nas 24 h anteriores (o "muitos destinos" que nenhuma regra conta).
+    payer_distinct_payees_24h: int
+
+    # Regra 7 — rastro do dinheiro
+    payer_recent_third_party_credits: Optional[int]
+    # Saltos até o documento com marcação mais próximo que mandou dinheiro
+    # (direta ou indiretamente) ao recebedor na janela; None se nenhum.
+    payee_marked_sender_hop: Optional[int]
+
+    @property
+    def destination_recurring(self) -> bool:
+        """Destino que este pagador já pagou — e nunca sob aviso de golpe.
+
+        Quem confirmou um Pix para este destino depois de um 2FA com aviso de
+        golpe pode ser a vítima voltando a pagar o golpista: para ele, o
+        destino não vira "a conta do mês", por mais Pix que tenha.
+        """
+        return self.pair_approved_count > 0 and self.pair_scam_step_up_count == 0
 
     def to_dict(self) -> dict:
         return asdict(self)

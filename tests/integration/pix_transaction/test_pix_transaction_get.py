@@ -1,13 +1,16 @@
-from tests.utils import PayloadGenerator, RequestGenerator
+from datetime import datetime
+
+from tests.utils import PayloadGenerator, RandomGenerator, RequestGenerator, decision_of
 
 
 class TestPixTransactionGet:
-    def test_returns_the_same_response_as_the_post(self):
+    def test_returns_the_recorded_decision_of_the_post(self):
         """O GET devolve a análise GRAVADA, não uma reavaliação.
 
         Se o GET reavaliasse, o mesmo Pix poderia mudar de decisão
         conforme o histórico cresce — e a resposta deixaria de ser prova
-        do que foi decidido naquele momento.
+        do que foi decidido naquele momento. Tudo o que o POST respondeu
+        volta igual; o dossiê só acrescenta a trilha de status.
         """
         payload = PayloadGenerator.create_pix_payload()
 
@@ -17,7 +20,44 @@ class TestPixTransactionGet:
         status, fetched = RequestGenerator.GET_pix_transaction(payload["id"])
 
         assert status == 200
-        assert fetched == created
+        assert decision_of(fetched) == created
+
+    def test_status_history_starts_with_the_birth_of_the_analysis(self):
+        """Toda análise nasce com um evento: de nenhum status para o status decidido, na data do Pix."""
+        payload = PayloadGenerator.create_pix_payload()
+
+        status, created = RequestGenerator.POST_pix_transaction(payload)
+        assert status == 201
+
+        status, fetched = RequestGenerator.GET_pix_transaction(payload["id"])
+
+        assert status == 200
+        [birth] = fetched["metadata"]["status_history"]
+        assert birth["from_status"] is None
+        assert birth["to_status"] == created["status"]
+        assert datetime.fromisoformat(birth["event_datetime"]) == datetime.fromisoformat(payload["transaction_date"])
+
+    def test_without_two_factor_return_the_initial_status_is_the_status(self):
+        payload = PayloadGenerator.create_pix_payload()
+
+        status, created = RequestGenerator.POST_pix_transaction(payload)
+        assert status == 201
+
+        status, fetched = RequestGenerator.GET_pix_transaction(payload["id"])
+
+        assert status == 200
+        assert fetched["metadata"]["initial_status"] == created["status"]
+        assert fetched["metadata"]["two_factor"] is None
+
+    def test_post_does_not_carry_the_dossier_fields(self):
+        """O POST continua com a resposta do slide: a história mora no dossiê (GET)."""
+        payload = PayloadGenerator.create_pix_payload()
+
+        status, created = RequestGenerator.POST_pix_transaction(payload)
+
+        assert status == 201
+        for field in ("initial_status", "two_factor", "status_history"):
+            assert field not in created["metadata"]
 
     def test_unknown_id_is_not_found(self):
         status, response = RequestGenerator.GET_pix_transaction("pix-que-nunca-existiu")
@@ -73,3 +113,41 @@ class TestPixTransactionIdempotency:
 
         assert status == 409
         assert response["code"] == "QIT001002"
+
+    def test_mask_does_not_change_the_content(self):
+        """O mesmo CNPJ com e sem máscara é o mesmo documento, e o mesmo Pix.
+
+        O hash de idempotência é calculado sobre o payload normalizado: o
+        cliente que reenvia formatando o documento de outro jeito recebe a
+        análise gravada, não um 409.
+        """
+        payee_digits = "".join(character for character in RandomGenerator.generate_cnpj() if character.isdigit())
+        payload = PayloadGenerator.create_pix_payload(payee_document=payee_digits)
+
+        status, first = RequestGenerator.POST_pix_transaction(payload)
+        assert status == 201
+
+        payload["destination_account"]["owner"]["document_number"] = (
+            f"{payee_digits[0:2]}.{payee_digits[2:5]}.{payee_digits[5:8]}/{payee_digits[8:12]}-{payee_digits[12:14]}"
+        )
+        status, second = RequestGenerator.POST_pix_transaction(payload)
+
+        assert status == 200
+        assert second == first
+
+
+class TestPixTransactionLatency:
+    def test_every_analysis_records_how_long_the_engine_took(self):
+        """`latency_ms` é gravado na análise: o GET e o reenvio devolvem o tempo da decisão, não o de agora."""
+        payload = PayloadGenerator.create_pix_payload()
+
+        status, created = RequestGenerator.POST_pix_transaction(payload)
+        assert status == 201
+
+        latency_ms = created["metadata"]["latency_ms"]
+        assert isinstance(latency_ms, int)
+        assert 0 <= latency_ms < 2000
+
+        status, fetched = RequestGenerator.GET_pix_transaction(payload["id"])
+        assert status == 200
+        assert fetched["metadata"]["latency_ms"] == latency_ms
