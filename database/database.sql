@@ -338,7 +338,7 @@ CROSS JOIN (VALUES
     ('RITMO.velocidade',
      '{"window_minutes": 10, "two_factor_count": 5, "reject_count": 10, "min_window_amount": 100000}'),
 
-    -- Estimativa: 3 ou mais Pix em 1 h, cada um entre 90% e 100% de um
+    -- Estimativa: 3 ou mais Pix em 1 h, cada um entre 90 e 100 por cento de um
     -- limite da política (R$ 200 do aparelho não cadastrado, R$ 1.000 do
     -- noturno), pedem 2FA de limite.
     ('RITMO.fracionamento',
@@ -370,7 +370,7 @@ CROSS JOIN (VALUES
      '{"window_days": 90, "points": 60}'),
 
     -- Estimativa: o pagador recebeu de terceiros nos últimos 60 min e
-    -- repassa 80% ou mais disso. Pontua conta laranja no corte (60):
+    -- repassa 80 por cento ou mais disso. Pontua conta laranja no corte (60):
     -- sozinho pede 2FA com aviso de golpe; com outro sinal de laranja,
     -- recusa pela regra dos dois sinais.
     ('RASTRO.repasse_rapido',
