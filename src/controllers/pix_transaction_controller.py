@@ -7,6 +7,8 @@ from typing import Optional, Tuple
 
 from controllers.analysis_engine import AnalysisEngine, EngineResult
 from controllers.base_controller import BaseController
+from controllers.decision import FACE_LIVENESS, STEP_UP_ACCOUNT_TAKEOVER
+from controllers.device_trust import DeviceTrust
 from controllers.feature_builder import FeatureBuilder
 from controllers.features import PixFeatures
 from controllers.rules import PolicyParameters
@@ -23,6 +25,7 @@ from errors import (
     TwoFactorResultConflict,
 )
 from models import TWO_FACTOR_RESULT_STATUS, Account, AnalysisStatus, Device, PixTransaction
+from models.analysis_status_event import TWO_FACTOR_PASSED
 from repositories import (
     AccountRepository,
     AnalysisRepository,
@@ -80,10 +83,7 @@ class PixTransactionController(BaseController):
         if recorded_pix is not None:
             return self._replay(recorded_pix, pix), False
 
-        policy = self.policy_repository.get_active()
-        if policy is None:
-            raise NoActivePolicy()
-        params = PolicyParameters(policy)
+        policy, params = self._active_policy()
 
         source_account = self.account_repository.get_or_create(pix["source_account"])
         destination_account = self.account_repository.get_or_create(pix["destination_account"])
@@ -97,7 +97,7 @@ class PixTransactionController(BaseController):
 
         pix_transaction = self._record_pix(pix, source_account, destination_account, device)
         analysis = self._record_analysis(pix_transaction, policy, features, engine_result)
-        self._update_aggregates(pix, destination_account, device, features, engine_result)
+        self._update_aggregates(pix, destination_account, device, features, engine_result, params)
 
         analysis_dto = PixAnalysisDTO.obj_to_dict(analysis)
         self.session.commit()
@@ -161,11 +161,62 @@ class PixTransactionController(BaseController):
             raise PixNotAwaitingTwoFactor(pix_id, analysis.status.enumerator)
 
         self.analysis_repository.change_status(analysis, TWO_FACTOR_RESULT_STATUS[result], completed_at)
+        self._learn_from_two_factor(pix_transaction, analysis, result, completed_at)
 
         analysis_dto = PixAnalysisDTO.obj_to_dossier_dict(analysis)
         self.session.commit()
 
         return analysis_dto
+
+    def _learn_from_two_factor(self, pix_transaction, analysis, result: str, completed_at: datetime) -> None:
+        """O que o motor aprende com o resultado do 2FA.
+
+          • passou → o Pix saiu: entra no perfil, na soma noturna e no par,
+            como qualquer Pix aprovado. Com duas ressalvas:
+              – biometria facial aprovada é o cadastro do aparelho que o
+                BCB prevê: o aparelho fica confiável na hora. A confirmação
+                no app (2FA por limite ou por golpe) não cadastra nada;
+              – 2FA com aviso de golpe confirmado NÃO torna o destino
+                recorrente. A vítima de falso investimento confirma o Pix e
+                volta a pagar o mesmo golpista; se o destino virasse "a
+                conta do mês", o segundo Pix sairia sem fricção.
+          • falhou → nada entra no perfil. Se a suspeita era invasão, o
+            aparelho fica com a confiança bloqueada por 24 h.
+        """
+        _policy, params = self._active_policy()
+        payer_document = pix_transaction.payer_document_number
+        device_owner = self.device_owner_repository.get(pix_transaction.device_id, payer_document)
+
+        if result != TWO_FACTOR_PASSED:
+            if analysis.step_up_reason == STEP_UP_ACCOUNT_TAKEOVER:
+                self.device_owner_repository.register_step_up_failure(device_owner, completed_at)
+            return
+
+        if analysis.step_up_method == FACE_LIVENESS:
+            self.device_owner_repository.register_face_liveness(device_owner, completed_at)
+
+        self._learn_approved(
+            {
+                "payer_document": payer_document,
+                "amount": pix_transaction.amount,
+                "transaction_date": pix_transaction.transaction_date,
+                "latitude": pix_transaction.latitude,
+                "longitude": pix_transaction.longitude,
+            },
+            device_owner,
+            self.payer_payee_pair_repository.get(payer_document, pix_transaction.destination_account_id),
+            is_night=bool(analysis.features["is_night"]),
+            same_ownership=analysis.features["same_ownership"],
+            recurring_destination=not analysis.scam_warning,
+            params=params,
+        )
+
+    def _active_policy(self):
+        policy = self.policy_repository.get_active()
+        if policy is None:
+            raise NoActivePolicy()
+
+        return policy, PolicyParameters(policy)
 
     def _recorded_two_factor_result(self, analysis) -> Optional[str]:
         """O resultado do 2FA já gravado na trilha, ou None se o 2FA ainda não voltou."""
@@ -262,13 +313,15 @@ class PixTransactionController(BaseController):
         device: Device,
         features: PixFeatures,
         engine_result: EngineResult,
+        params: PolicyParameters,
     ) -> None:
         """Atualiza as tabelas agregadas no mesmo commit do Pix.
 
         Higiene do histórico: toda tentativa registra que o aparelho e o
         destino foram VISTOS, mas só o Pix APROVADO ensina o perfil. Se a
         tentativa recusada entrasse na mediana, o fraudador "educaria" a
-        linha de base subindo valores aos poucos.
+        linha de base subindo valores aos poucos. O Pix que pediu 2FA
+        ensina depois, se o 2FA passar (`_learn_from_two_factor`).
         """
         payer_document = pix["payer_document"]
         transaction_date = pix["transaction_date"]
@@ -281,15 +334,50 @@ class PixTransactionController(BaseController):
         if engine_result.decision.status != AnalysisStatus.APPROVED:
             return
 
+        self._learn_approved(
+            pix,
+            device_owner,
+            pair,
+            is_night=bool(features.is_night),
+            same_ownership=features.same_ownership,
+            recurring_destination=True,
+            params=params,
+        )
+
+    def _learn_approved(
+        self,
+        pix: dict,
+        device_owner,
+        pair,
+        is_night: bool,
+        same_ownership: bool,
+        recurring_destination: bool,
+        params: PolicyParameters,
+    ) -> None:
+        """Um Pix que saiu: o perfil, o par e o aparelho aprendem com ele.
+
+        Serve ao Pix aprovado direto (POST) e ao que passou no 2FA (PATCH):
+        "Pix aprovado" é um só, por qualquer caminho que tenha saído.
+        """
+        payer_document = pix["payer_document"]
+        transaction_date = pix["transaction_date"]
+
         profile = self.payer_profile_repository.get_or_create(payer_document)
         self.payer_profile_repository.add_approved(profile, pix["amount"], transaction_date)
-        self.payer_payee_pair_repository.add_approved(pair, pix["amount"])
 
-        self.device_owner_repository.add_approved(device_owner, transaction_date)
+        if recurring_destination:
+            self.payer_payee_pair_repository.add_approved(pair, pix["amount"])
+        else:
+            self.payer_payee_pair_repository.add_scam_step_up(pair)
+
+        # Com a confiança bloqueada (biometria reprovada há menos de 24 h),
+        # o Pix aprovado não conta para tornar o aparelho confiável.
+        if not DeviceTrust.is_blocked(device_owner, transaction_date, params.of("LIMITE.aparelho_nao_cadastrado")):
+            self.device_owner_repository.add_approved(device_owner, transaction_date)
 
         # Mover o próprio dinheiro de madrugada não diz nada sobre o limite
         # noturno que o cliente configurou para pagar terceiros.
-        if features.is_night and not features.same_ownership:
+        if is_night and not same_ownership:
             self.payer_profile_repository.update_max_night_approved_amount(profile, pix["amount"])
 
         if pix["latitude"] is not None:

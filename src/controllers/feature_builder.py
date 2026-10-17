@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from constants import LOCAL_TIMEZONE
+from controllers.device_trust import DeviceTrust
 from controllers.features import PixFeatures
 from controllers.rules.policy_parameters import PolicyParameters
 from database import Context
@@ -47,8 +48,10 @@ class FeatureBuilder:
             max_night_approved_amount = profile.max_night_approved_amount
 
         pair_approved_count = 0
+        pair_scam_step_up_count = 0
         if pair is not None:
             pair_approved_count = pair.approved_count
+            pair_scam_step_up_count = pair.scam_step_up_count
 
         night = self._night(pix, local_date, params.of("LIMITE.noturno"))
         velocity = self._velocity(pix, params.of("RITMO.velocidade"))
@@ -64,7 +67,7 @@ class FeatureBuilder:
             payee_markers=self._markers(payee_document, transaction_date),
             payer_known=self.pix_feature_repository.payer_has_pix(payer_document),
             payer_account_age_days=max(0, (transaction_date - pix["source_account"]["opening_date"]).days),
-            device_trusted=self._device_trusted(
+            device_trusted=DeviceTrust.is_trusted(
                 device_owner, transaction_date, params.of("LIMITE.aparelho_nao_cadastrado")
             ),
             untrusted_devices_day_amount=self._untrusted_devices_day_amount(
@@ -77,6 +80,7 @@ class FeatureBuilder:
             velocity_amount=velocity["amount"],
             profile_amounts=self._profile_amounts(profile, transaction_date, params.of("PERFIL.valor")),
             pair_approved_count=pair_approved_count,
+            pair_scam_step_up_count=pair_scam_step_up_count,
             payee_account_age_days=max(0, (transaction_date - destination_account.opening_date).days),
             payee_prior_approved_credits=self.pix_feature_repository.count_credits(
                 destination_account.id, AnalysisStatus.APPROVED
@@ -96,21 +100,6 @@ class FeatureBuilder:
             )
 
         return markers
-
-    def _device_trusted(self, device_owner, transaction_date: datetime, parameters) -> bool:
-        """Confiável = N Pix aprovados deste pagador neste aparelho, o primeiro há pelo menos X horas.
-
-        Um Pix aprovado só não basta: senão o ladrão "aquece" o aparelho com
-        um Pix de R$ 10, e o seguinte, de R$ 5.000, não pede 2FA. Exigir que
-        o primeiro tenha mais de 24 h faz a confiança atravessar um dia — o
-        tempo de o titular perceber que perdeu o celular.
-        """
-        if parameters is None or device_owner is None or device_owner.first_approved_at is None:
-            return False
-
-        trusted_since = device_owner.first_approved_at + timedelta(hours=parameters["trusted_min_hours"])
-
-        return device_owner.approved_count >= parameters["trusted_min_approved_pix"] and trusted_since <= transaction_date
 
     def _untrusted_devices_day_amount(self, payer_document, transaction_date, local_date, parameters):
         """Quanto este pagador já mandou HOJE (dia de Brasília), aprovado, de aparelhos não confiáveis."""

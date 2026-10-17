@@ -253,6 +253,11 @@ CREATE TABLE payer_payee_pair(
     last_seen_at                    TIMESTAMPTZ NOT NULL,
     approved_count                  INTEGER NOT NULL,
     approved_amount                 BIGINT NOT NULL,
+    -- Quantas vezes o pagador confirmou um Pix para este destino depois de
+    -- um 2FA com aviso de golpe. Esses Pix entram no perfil, mas não em
+    -- `approved_count`: a vítima que confirma o golpe costuma pagar o mesmo
+    -- golpista de novo, e o destino não pode virar "recorrente" por isso.
+    scam_step_up_count              INTEGER NOT NULL,
     created_at                      TIMESTAMPTZ NOT NULL DEFAULT(NOW()),
     UNIQUE(payer_document_number, destination_account_id)
 );
@@ -260,9 +265,14 @@ CREATE TABLE payer_payee_pair(
 -- Aparelho × documento: "este aparelho é confiável para esta pessoa?"
 --
 -- Confiável = pelo menos 2 Pix aprovados deste pagador, o primeiro há pelo
--- menos 24 h (parâmetros em LIMITE.aparelho_nao_cadastrado). Um Pix de R$ 10
--- aprovado não basta: senão, o ladrão "aquece" o aparelho com um Pix
+-- menos 24 h (parâmetros em LIMITE.aparelho_nao_cadastrado), OU biometria
+-- facial aprovada no retorno do 2FA (`face_liveness_passed_at`). Um Pix de
+-- R$ 10 aprovado não basta: senão, o ladrão "aquece" o aparelho com um Pix
 -- pequeno e o seguinte, grande, sai sem 2FA.
+--
+-- Biometria REPROVADA num 2FA por suspeita de invasão (`step_up_failed_at`)
+-- bloqueia a confiança por 24 h: nesse período o aparelho não é confiável, e
+-- nenhum Pix aprovado conta para torná-lo confiável.
 CREATE TABLE device_owner(
     id                              SERIAL PRIMARY KEY,
     device_id                       INTEGER NOT NULL REFERENCES device(id),
@@ -270,6 +280,8 @@ CREATE TABLE device_owner(
     first_seen_at                   TIMESTAMPTZ NOT NULL,
     first_approved_at               TIMESTAMPTZ,
     approved_count                  INTEGER NOT NULL,
+    face_liveness_passed_at         TIMESTAMPTZ,
+    step_up_failed_at               TIMESTAMPTZ,
     created_at                      TIMESTAMPTZ NOT NULL DEFAULT(NOW()),
     UNIQUE(device_id, document_number)
 );
@@ -302,11 +314,12 @@ CROSS JOIN (VALUES
 
     -- Res. BCB 403/2024 e nota BCB 20231 (norma): R$ 200 por Pix e
     -- R$ 1.000 por dia em aparelho não cadastrado. Estimativa: o aparelho
-    -- só vira confiável com 2 Pix aprovados, o primeiro há 24 h ou mais; e o
+    -- só vira confiável com 2 Pix aprovados, o primeiro há 24 h ou mais; o
     -- cliente que o motor ainda não conhece, com conta pagadora de 180 dias
-    -- ou mais, vai até o limite de partida do perfil sem 2FA de aparelho.
+    -- ou mais, vai até o limite de partida do perfil sem 2FA de aparelho; e
+    -- a biometria reprovada bloqueia a confiança do aparelho por 24 h.
     ('LIMITE.aparelho_nao_cadastrado',
-     '{"max_amount_per_pix": 20000, "max_amount_per_day": 100000, "trusted_min_approved_pix": 2, "trusted_min_hours": 24, "new_client_min_account_age_days": 180}'),
+     '{"max_amount_per_pix": 20000, "max_amount_per_day": 100000, "trusted_min_approved_pix": 2, "trusted_min_hours": 24, "new_client_min_account_age_days": 180, "step_up_failed_block_hours": 24}'),
 
     -- Res. BCB 142/2021 (norma): R$ 1.000 entre 20h e 6h, PF para PF.
     ('LIMITE.noturno',

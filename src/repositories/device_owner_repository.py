@@ -34,3 +34,9 @@ class DeviceOwnerRepository:
             device_owner.first_approved_at = approved_at
 
         device_owner.first_approved_at = min(device_owner.first_approved_at, approved_at)
+
+    def register_face_liveness(self, device_owner: DeviceOwner, passed_at: datetime) -> None:
+        device_owner.face_liveness_passed_at = passed_at
+
+    def register_step_up_failure(self, device_owner: DeviceOwner, failed_at: datetime) -> None:
+        device_owner.step_up_failed_at = failed_at

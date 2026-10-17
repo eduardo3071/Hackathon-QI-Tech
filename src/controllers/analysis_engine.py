@@ -76,7 +76,7 @@ class AnalysisEngine:
         """O gatilho: POR QUE este Pix precisa da camada 2 — ou None, e ele sai pelo caminho rápido.
 
         Vale um sinal de risco das camadas 0 e 1 ou um contexto de risco do
-        plano: aparelho não confiável, destino novo, horário noturno. Valor
+        plano: aparelho não confiável, destino não recorrente, horário noturno. Valor
         fora do perfil e conta destino recente já aparecem como sinal.
 
         O motivo é o mesmo vocabulário do `step_up_reason`: se a camada 2
@@ -88,7 +88,7 @@ class AnalysisEngine:
         if ATO in risk_typologies or not features.device_trusted:
             return STEP_UP_ACCOUNT_TAKEOVER
 
-        if APP in risk_typologies or MULE in risk_typologies or features.pair_approved_count == 0:
+        if APP in risk_typologies or MULE in risk_typologies or not features.destination_recurring:
             return STEP_UP_POSSIBLE_SCAM
 
         if has_risk_signal or features.is_night:

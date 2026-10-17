@@ -14,6 +14,8 @@ class DeviceOwner(Base):
     first_seen_at = Column(DateTime(timezone=True), nullable=False)
     first_approved_at = Column(DateTime(timezone=True), nullable=True)
     approved_count = Column(Integer, nullable=False)
+    face_liveness_passed_at = Column(DateTime(timezone=True), nullable=True)
+    step_up_failed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (UniqueConstraint("device_id", "document_number"),)

@@ -31,6 +31,7 @@ class PayerPayeePairRepository:
                 last_seen_at=seen_at,
                 approved_count=0,
                 approved_amount=0,
+                scam_step_up_count=0,
             )
             self.session.add(pair)
 
@@ -42,3 +43,6 @@ class PayerPayeePairRepository:
     def add_approved(self, pair: PayerPayeePair, amount: int) -> None:
         pair.approved_count = pair.approved_count + 1
         pair.approved_amount = pair.approved_amount + amount
+
+    def add_scam_step_up(self, pair: PayerPayeePair) -> None:
+        pair.scam_step_up_count = pair.scam_step_up_count + 1

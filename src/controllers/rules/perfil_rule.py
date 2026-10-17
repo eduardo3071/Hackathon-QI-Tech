@@ -90,7 +90,7 @@ class PerfilRule(BaseRule):
                 VALUE, 1, PASS, "Valor dentro do perfil do pagador.", observed=observed, threshold=threshold
             )
 
-        if features.pair_approved_count > 0:
+        if features.destination_recurring:
             return self.result(
                 VALUE,
                 1,
@@ -109,6 +109,19 @@ class PerfilRule(BaseRule):
                 f"{format_brl(features.amount)} fora do perfil, de um aparelho ainda não confiável: quem opera pode não ser o titular.",
                 typology=ATO,
                 points=parameters["ato_points"],
+                observed=observed,
+                threshold=threshold,
+            )
+
+        if features.pair_scam_step_up_count > 0:
+            return self.result(
+                VALUE,
+                1,
+                WARN,
+                f"{format_brl(features.amount)} fora do perfil, para um destino que este pagador já confirmou "
+                "sob aviso de golpe: o destino não conta como recorrente.",
+                typology=APP,
+                points=parameters["app_points"],
                 observed=observed,
                 threshold=threshold,
             )
