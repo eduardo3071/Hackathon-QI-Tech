@@ -10,7 +10,7 @@ esperado e o que fazer se der errado.
 
 ## 0. Onde estamos e o que falta
 
-**Pronto no `main`** (commit `3fc19de` ou mais novo), mas validado **sem Docker**: o ambiente onde o código foi
+**Pronto no `main`** (commit `80f7033` ou mais novo), mas validado **sem Docker**: o ambiente onde o código foi
 escrito não conseguia baixar imagens do Docker Hub. Os testes rodaram com Postgres 16 e a API fora do container,
 contra o mesmo `database/database.sql`:
 
@@ -31,10 +31,20 @@ contra o mesmo `database/database.sql`:
 | 3 | Retreinar o modelo dentro do container | 3 | 10 min |
 | 4 | Correções da bateria de realidade (10 itens) | 4 | 3 a 5 h |
 | 5 | Fase 5: README final, clone limpo, congelamento e tag | 5 | 2 a 3 h |
-| 6 | Entrega no Slack | 6 | 5 min |
+| 6 | Apresentação: roteiro, demo ao vivo, ensaio, perguntas | 6 | 1 h 30 |
+| 7 | Entrega no Slack | 7 | 5 min |
 
-**Cronograma sugerido:** seções 1 a 3 hoje à noite; seção 4 até a madrugada; seção 5 no domingo de manhã, com o
-código congelado às 10h30; link no Slack até 11h45.
+**Cronograma sugerido:** seções 1 a 3 hoje à noite; seção 4 até a madrugada; seção 5 no domingo às 8h, com o código
+congelado às 10h30; seção 6 em paralelo com a 5 (quem não está com o Claude Code prepara a apresentação); link no
+Slack até 11h45.
+
+**Já, antes de tudo:** perguntem no Slack do hackathon se o `PATCH /pix/transaction/{id}` (retorno do 2FA) está
+dentro do escopo. O slide só define o POST e o GET. Se a resposta for "fora", a rota é isolada e sai sem quebrar o
+resto (ver o README e o CLAUDE.md), mas é melhor saber antes da Fase 5.
+
+**Fica de fora, de propósito:** a cadeia de hashes por pagador (item 14 da Fase 3). O plano a marca como "a
+primeira a cortar". Só façam se sobrar tempo depois da seção 6; o README a descreve como "considerado e
+descartado" (ver o prompt da Fase 5).
 
 **Como trabalhar com o Claude Code.** As seções 4 e 5 são prompts para colar no Claude Code, aberto na pasta do
 repositório (`claude` no terminal). Na sua máquina ele tem Docker, então consegue validar o que o ambiente
@@ -58,6 +68,9 @@ anterior não conseguiu. Regras que valem para todos os prompts:
 | Python | 3.11 ou mais novo | `python3 --version` (Windows: `python --version`) |
 | Claude Code | — | `claude --version` |
 
+**Acesso ao repositório.** O repositório é `eduardo3071/Hackathon-QI-Tech`. Quem for fazer push precisa ser
+colaborador com permissão de escrita (o Eduardo adiciona em GitHub → Settings → Collaborators). Confira na 1.3.
+
 ### 1.2 Docker Hub
 
 O `docker compose up` baixa `postgres:16` e `python:3.11-slim`. Sem login, o Docker Hub limita os downloads, e o
@@ -74,8 +87,11 @@ git clone https://github.com/eduardo3071/Hackathon-QI-Tech.git
 cd Hackathon-QI-Tech
 git checkout main
 git pull
-git log --oneline -3      # o primeiro deve ser 3fc19de (Fase 4) ou mais novo
+git log --oneline -3      # o primeiro deve ser 80f7033 (este guia) ou mais novo
+git push --dry-run origin main     # "Everything up-to-date" = você tem acesso de escrita
 ```
+
+Se o `--dry-run` der `403` ou `Permission denied`, peça o acesso antes de seguir: as seções 3 a 5 fazem push.
 
 ### 1.4 Ambiente Python dos testes
 
@@ -131,6 +147,10 @@ Se falhar:
 
 ### 2.3 Conferência manual (o que o jurado vê)
 
+No **Windows**, o `curl` do PowerShell é outro programa e não aceita esses comandos. Use o Git Bash (vem com o
+Git) e cole os comandos como estão. Ou, no PowerShell, chame `curl.exe`, salve o JSON num arquivo (`pix.json`) e
+mande com `-d "@pix.json"`.
+
 **POST do exemplo do slide** (R$ 1.500 às 22h15, destino aberto há 7 dias):
 
 ```bash
@@ -178,10 +198,10 @@ Confere que a Fase 4 roda no Docker. **O `prepare_db.py` apaga o banco.**
 ```bash
 python scripts/simulator/prepare_db.py --ml-mode shadow
 python scripts/simulator/run.py --seed 2 --output scripts/simulator/output/regras.jsonl
-python scripts/simulator/report.py scripts/simulator/output/regras.jsonl --output /tmp/resultado.md
+python scripts/simulator/report.py scripts/simulator/output/regras.jsonl --output scripts/simulator/output/resultado.md
 ```
 
-Compare o resumo do `/tmp/resultado.md` com o do `docs/resultados-simulador.md`. Os números devem ser os
+A pasta `scripts/simulator/output/` não vai para o Git. Compare o resumo do `scripts/simulator/output/resultado.md` com o do `docs/resultados-simulador.md`. Os números devem ser os
 mesmos, porque a semente é fixa; só a latência muda. Depois, volte o banco ao normal antes dos testes:
 
 ```bash
@@ -359,7 +379,7 @@ contra o seed do `database/database.sql`, porque a bateria pode ter mudado algun
 
 Cole também esta nota, logo abaixo do prompt:
 
-> **Notas do estado atual:** a tabela de sinais novos e as decisões acima estão em `docs/GUIA-PARA-TERMINAR.md`, seção 5.1; use como ponto de partida e confira tudo contra o seed. Riscos do clone limpo a verificar: (1) no Windows os testes chamam `0.0.0.0:3000`, que não conecta; o padrão de `SERVER_LOCALHOST` em `tests/conftest.py`, `tests/utils/requisition.py` e `.env.example` talvez precise virar `127.0.0.1` (é bug, avise antes de corrigir, como o prompt pede); (2) o `docker compose up` sem `docker login` pode tomar 429 do Docker Hub; o README deve dizer isso. Remova o `docs/GUIA-PARA-TERMINAR.md` antes da tag: ele é arquivo de trabalho, não entrega.
+> **Notas do estado atual:** a tabela de sinais novos e as decisões acima estão em `docs/GUIA-PARA-TERMINAR.md`, seção 5.1; use como ponto de partida e confira tudo contra o seed. Riscos do clone limpo a verificar: (1) no Windows os testes chamam `0.0.0.0:3000`, que não conecta; o padrão de `SERVER_LOCALHOST` em `tests/conftest.py`, `tests/utils/requisition.py` e `.env.example` talvez precise virar `127.0.0.1` (é bug, avise antes de corrigir, como o prompt pede); (2) o `docker compose up` sem `docker login` pode tomar 429 do Docker Hub; o README deve dizer isso. **Não** remova o `docs/GUIA-PARA-TERMINAR.md`: a dupla o remove depois, junto com os Integrantes, e move a tag. O demo da apresentação está em `scripts/demo/demo.py`; o README pode citá-lo em "Como rodar e testar".
 
 ### 5.2 O prompt (cole inteiro)
 
@@ -413,35 +433,110 @@ Se algo conflitar com o CLAUDE.md, pare e pergunte.
 
 ### 5.3 Você mesmo, depois do Claude Code
 
-1. Preencha os **Integrantes** no README (o Claude Code deixa `[o grupo preenche]`) e faça o commit.
-2. Faça o **seu** clone limpo, que é a prova real, numa pasta nova:
+A tag tem de apontar para a versão final. Por isso estes três passos vêm **antes** de considerar a tag pronta:
+
+1. Preencha os **Integrantes** no README (o Claude Code deixa `[o grupo preenche]`).
+2. Remova este guia do `main`, se ainda estiver lá: `git rm docs/GUIA-PARA-TERMINAR.md`.
+3. Faça o commit, mova a tag para ele e mande os dois ao GitHub:
 
    ```bash
-   cd /tmp && rm -rf entrega && git clone https://github.com/eduardo3071/Hackathon-QI-Tech.git entrega && cd entrega
+   git commit -am "README: integrantes; guia de trabalho removido"
+   git tag -f v1.0-entrega
+   git push origin main
+   git push -f origin v1.0-entrega
+   git ls-remote --tags origin        # a tag v1.0-entrega aponta para o mesmo hash do git log -1
+   ```
+
+4. Faça o **seu** clone limpo, que é a prova real, numa pasta nova **fora** do repositório:
+
+   ```bash
+   cd .. && rm -rf entrega && git clone https://github.com/eduardo3071/Hackathon-QI-Tech.git entrega && cd entrega
    docker compose down -v; docker compose up --build -d     # espere (healthy)
    python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements-dev.txt
    pytest -q
    ```
 
-   Depois rode os três `curl` do README, copiando e colando direto de lá. Se algo falhar, conserte o README antes de enviar.
-3. Confira a tag: `git tag -l` mostra `v1.0-entrega`, e `git push origin v1.0-entrega` já foi feito.
-4. **Código congelado às 10h30.** Depois disso, só correção de bug, e com a tag movida (`git tag -f v1.0-entrega && git push -f origin v1.0-entrega`).
+   Antes, pare o docker compose da pasta antiga (`docker compose down` lá), senão as portas 3000 e 5432 estarão
+   ocupadas. Depois rode os `curl` do README, copiando direto de lá. Se algo falhar, conserte o README, faça o
+   commit e mova a tag de novo (passo 3).
+5. **Código congelado às 10h30.** Depois disso, só correção de bug, sempre com a tag movida (passo 3).
 
 ---
 
-## 6. Entrega
+## 6. Apresentação (7 min + 3 min de perguntas)
+
+### 6.1 Roteiro (do PLANO), com a fonte de cada número
+
+| Tempo | Bloco | O que dizer | De onde sai |
+|---|---|---|---|
+| 40 s | O problema em um número | O MED recuperou só 9,3% do valor contestado em 2025: a decisão tem de acontecer antes do Pix sair | BCB, MED 2.0 (link em `docs/pesquisa-fraude-pix.md`, linha 23); também: fraude média R$ 1.735 × mediana P2P R$ 50 |
+| 1 min | A tese | Biometria para o invasor; 2FA com aviso para o golpe; recusa só com evidência dura; o motor aprende com o retorno do 2FA | README, "Como o motor de decisão funciona" |
+| 2 min | Demo ao vivo | 4 histórias: cliente normal, celular roubado, falsa central, conta laranja (6.2) | `scripts/demo/demo.py` |
+| 1 min | A rede | O histórico próprio vira fan-in, repasse rápido, aparelho compartilhado, proximidade de conta marcada | README, Regras 5, 6 e 7 |
+| 1 min 20 s | Resultados | Fraude pega por tipo e fricção em cliente bom, com e sem ML; **sempre** como teste de regressão e medida de fricção, não eficácia | `docs/resultados-simulador.md` e `docs/bateria-realidade.md` **depois** da seção 4 |
+| 1 min | Limites e próximos passos | O que o contrato não traz (ligação ativa, app de acesso remoto), coação, calibração com o resultado real do 2FA e do MED | README, "Limitações conhecidas" |
+
+Ensaiem **com cronômetro**, pelo menos duas vezes. A demo é o bloco que mais estoura o tempo.
+
+### 6.2 Demo ao vivo
+
+Com a API de pé (`docker compose up -d`, `(healthy)`):
+
+```bash
+python scripts/demo/demo.py
+```
+
+Ela roda em ~3 s, só por HTTP, com documentos novos a cada vez e datas de abril de 2026 (não atrapalha nada), e
+mostra para cada Pix a decisão, o motivo e o método do 2FA, os placares, a latência e os sinais. No `main` de
+hoje, o resultado é:
+
+| História | O que o motor faz |
+|---|---|
+| Cliente normal, R$ 180 para o destino de sempre | `approved` pelo caminho rápido |
+| Celular roubado: R$ 10 de teste, depois R$ 3.000 | o de R$ 10 sai (cabe nos R$ 200 do BCB); o de R$ 3.000 pede biometria, e o ladrão reprova → `rejected` |
+| Falsa central: R$ 4.000 do próprio celular | 2FA com aviso de golpe; a vítima confirma; no dia seguinte, R$ 5.000 ao mesmo golpista pede 2FA de novo |
+| Conta laranja: 5 pagadores de R$ 300 para conta de 10 dias | os 4 primeiros saem; o 5º é `rejected` (conta nova + fan-in) |
+
+**Depois da seção 4 (bateria), o resultado muda.** Por exemplo, o item 7 trava a laranja mais cedo, e o item 9
+pede cadastro do aparelho no primeiro Pix. Rodem a demo de novo e atualizem a fala.
+
+**Plano B:** se a demo ao vivo falhar (rede, Docker), mostrem a saída gravada. Gravem-na assim que a seção 5
+terminar:
+
+```bash
+python scripts/demo/demo.py > demo-saida.txt      # não vai para o Git: apague ou deixe fora do commit
+```
+
+Em projeção, deixem o terminal com fonte grande e mostrem também um `metadata` inteiro (o `curl` do GET do README).
+
+### 6.3 Perguntas prováveis da banca (preparem a resposta)
+
+| Pergunta | Resposta curta (o detalhe está no README) |
+|---|---|
+| "De onde veio esse número?" | Cada parâmetro é "norma" (com a resolução) ou "estimativa" (com o raciocínio), e todos ficam na tabela `rule_parameter`, configuráveis sem deploy; o que calibraria: o resultado real do 2FA e do MED |
+| "Por que não recusar o golpe?" | A vítima manipulada passa em qualquer 2FA, mas recusar o vendedor de carro usado é prejuízo para o cliente bom; o slide define reprovar como "risco claro" |
+| "O simulador prova que o motor funciona?" | Não: os cenários são nossos. É teste de regressão e medida de fricção, e 70% dos créditos ficam invisíveis ao motor de propósito |
+| "E o ML?" | Detecção de anomalia, treinada só com Pix legítimos, em modo sombra: o escore separa o padrão novo, mas o ganho na decisão foi pequeno, e o relatório diz isso |
+| "Por que o PATCH, se o slide não pede?" | Sem ele o motor não aprende com o 2FA confirmado; a rota é isolada e removível |
+| "Quanto tempo o motor leva?" | `latency_ms` em cada análise; p95 do caminho rápido abaixo de 100 ms (o número exato está nos relatórios) |
+| "E a LGPD?" | Base legal de prevenção à fraude, nada pessoal em log, `observed`/`threshold` só no dossiê interno em produção |
+
+---
+
+## 7. Entrega
 
 - [ ] `main` com a suíte verde no Docker (contagem anotada)
 - [ ] `docs/bateria-realidade.md` e `docs/resultados-simulador.md` atualizados
 - [ ] README com Integrantes preenchidos, clone limpo testado por vocês
-- [ ] `docs/GUIA-PARA-TERMINAR.md` removido do `main`
-- [ ] tag `v1.0-entrega` no GitHub
+- [ ] `docs/GUIA-PARA-TERMINAR.md` removido do `main` (5.3, passo 2)
+- [ ] tag `v1.0-entrega` no GitHub, apontando para o último commit do `main` (`git ls-remote --tags origin`)
+- [ ] demo ensaiada e saída de plano B gravada
 - [ ] **link do repositório no Slack, grupo da final, até 11h45** (prazo 12h):
       `https://github.com/eduardo3071/Hackathon-QI-Tech`
 
 ---
 
-## 7. Problemas comuns
+## 8. Problemas comuns
 
 | Sintoma | Causa | O que fazer |
 |---|---|---|
@@ -454,10 +549,13 @@ Se algo conflitar com o CLAUDE.md, pare e pergunte.
 | `pytest` falhando logo depois do simulador ou da bateria | o banco ficou em `ml_mode = active`, ou com muitos dados | `docker compose down -v && docker compose up -d` |
 | treino no container: `Permission denied` em `/app/ml/artifacts` | a imagem roda com um usuário sem permissão de escrita | use o `-u root` do comando da seção 3 |
 | Claude Code quer mudar uma regra no meio da Fase 5 | a Fase 5 não muda comportamento | peça para ele só anotar o bug; decida vocês |
+| `curl` no PowerShell dá erro de parâmetro | o `curl` do PowerShell é outro programa | use o Git Bash, ou `curl.exe` com o JSON num arquivo (`-d "@pix.json"`) |
+| `git push` dá 403 | sem permissão de escrita no repositório | o Eduardo adiciona como colaborador (1.1) |
+| demo mostra decisões diferentes da tabela da 6.2 | a seção 4 mudou regras | é esperado: rodem de novo e atualizem a fala |
 
 ---
 
-## 8. O que vocês precisam saber (achados e decisões até aqui)
+## 9. O que vocês precisam saber (achados e decisões até aqui)
 
 **Achados do simulador** (`docs/resultados-simulador.md`, seção "Achados para o grupo"):
 
