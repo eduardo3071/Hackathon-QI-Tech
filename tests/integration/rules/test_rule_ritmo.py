@@ -85,3 +85,38 @@ class TestRuleRitmoVelocidade:
 
         assert response["status"] == "approved"
         assert reason_for(response, "RITMO.velocidade") is None
+
+    def test_same_pix_redone_with_new_id_counts_once(self):
+        """Mesmo pagador, mesmo recebedor, mesmo valor, `id` novo: é o cliente refazendo o Pix.
+
+        Quem tomou um 2FA e refez o Pix não pode ser empurrado para a recusa
+        por isso. Cinco envios iguais em cinco minutos são UMA tentativa.
+        """
+        context = self._payer_with_known_device()
+        payee = {
+            "payee_document": RandomGenerator.generate_cpf(),
+            "payee_account_number": RandomGenerator.generate_account_number(),
+        }
+
+        responses = [
+            Scenario.send(**context, **payee, amount=30000, transaction_date=shift_date(DAY, minutes=minute))
+            for minute in range(5)
+        ]
+
+        assert [response["status"] for response in responses] == ["approved"] * 5
+
+    def test_same_payee_with_another_amount_is_another_attempt(self):
+        """O limite logo ao lado: outro valor para o mesmo recebedor é outra tentativa."""
+        context = self._payer_with_known_device()
+        payee = {
+            "payee_document": RandomGenerator.generate_cpf(),
+            "payee_account_number": RandomGenerator.generate_account_number(),
+        }
+
+        responses = [
+            Scenario.send(**context, **payee, amount=30000 + minute, transaction_date=shift_date(DAY, minutes=minute))
+            for minute in range(5)
+        ]
+
+        assert responses[4]["status"] == "two_factor_required"
+        assert reason_for(responses[4], "RITMO.velocidade")["observed"]["attempts"] == 5

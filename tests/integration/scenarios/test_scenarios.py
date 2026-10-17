@@ -118,7 +118,6 @@ class TestEndToEndScenarios:
         assert status == 200
         assert second == first
 
-    @pytest.mark.xfail(strict=True, reason="tarefa 3: velocidade sem punir reenvio")
     def test_resend_with_new_id_counts_once(self):
         """O mesmo Pix refeito 3 vezes com `id` novo em 5 min é UMA tentativa.
 

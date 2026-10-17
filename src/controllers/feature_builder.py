@@ -51,7 +51,7 @@ class FeatureBuilder:
             pair_approved_count = pair.approved_count
 
         night = self._night(pix, local_date, params.of("LIMITE.noturno"))
-        velocity = self._velocity(payer_document, transaction_date, params.of("RITMO.velocidade"))
+        velocity = self._velocity(pix, params.of("RITMO.velocidade"))
 
         return PixFeatures(
             amount=pix["amount"],
@@ -131,14 +131,25 @@ class FeatureBuilder:
         )
         return {"is_night": True, "amount": amount}
 
-    def _velocity(self, payer_document: str, transaction_date: datetime, parameters) -> dict:
+    def _velocity(self, pix: dict, parameters) -> dict:
+        """Tentativas anteriores do pagador na janela, e quanto elas somam.
+
+        O mesmo Pix refeito com `id` novo — mesmo recebedor, mesmo valor —
+        conta como UMA tentativa: é o cliente que tomou um 2FA e refez o
+        Pix, e contar de novo o empurraria para a recusa. Por isso a
+        contagem é de pares (recebedor, valor) distintos, e o par deste Pix
+        sai da conta (a regra soma o Pix atual à vista, "anteriores + 1").
+        """
         if parameters is None:
             return {"attempts": None, "amount": None}
 
-        window_start = transaction_date - timedelta(minutes=parameters["window_minutes"])
-        attempts, amount = self.pix_feature_repository.count_attempts(payer_document, window_start, transaction_date)
+        window_start = pix["transaction_date"] - timedelta(minutes=parameters["window_minutes"])
+        groups = set(
+            self.pix_feature_repository.attempt_groups(pix["payer_document"], window_start, pix["transaction_date"])
+        )
+        groups.discard((pix["payee_document"], pix["amount"]))
 
-        return {"attempts": attempts, "amount": amount}
+        return {"attempts": len(groups), "amount": sum(amount for _payee, amount in groups)}
 
     def _profile_amounts(self, profile, transaction_date: datetime, parameters):
         """Os valores aprovados do pagador dentro da janela do perfil (90 dias)."""

@@ -20,18 +20,24 @@ class PixFeatureRepository:
     def __init__(self, context: Context) -> None:
         self.session = context.db_session
 
-    def count_attempts(self, payer_document: str, start: datetime, end: datetime) -> Tuple[int, int]:
-        """Quantas tentativas o pagador fez na janela, e quanto elas somam — com qualquer status."""
-        attempts, amount = (
-            self.session.query(func.count(PixTransaction.id), func.coalesce(func.sum(PixTransaction.amount), 0))
+    def attempt_groups(self, payer_document: str, start: datetime, end: datetime) -> List[Tuple[str, int]]:
+        """As tentativas do pagador na janela, com qualquer status, agrupadas por (recebedor, valor).
+
+        Cada par distinto volta uma vez só. Quem decide que o mesmo Pix
+        refeito com `id` novo é UMA tentativa é o controller; aqui só se
+        agrupa.
+        """
+        rows = (
+            self.session.query(PixTransaction.payee_document_number, PixTransaction.amount)
             .filter(
                 PixTransaction.payer_document_number == payer_document,
                 PixTransaction.transaction_date >= start,
                 PixTransaction.transaction_date <= end,
             )
-            .one()
+            .distinct()
+            .all()
         )
-        return attempts, int(amount)
+        return [(row.payee_document_number, row.amount) for row in rows]
 
     def sum_approved_between_people(
         self,

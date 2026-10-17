@@ -36,7 +36,7 @@ class PixFeatures:
     night_person_to_person_amount: Optional[int]
     max_night_approved_amount: int
 
-    # Regra 3 — velocidade
+    # Regra 3 — velocidade (pares recebedor+valor distintos, sem o deste Pix)
     velocity_attempts: Optional[int]
     velocity_amount: Optional[int]
 
