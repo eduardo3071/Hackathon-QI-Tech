@@ -373,6 +373,11 @@ CROSS JOIN (VALUES
     ('QUEM_OPERA.viagem_impossivel',
      '{"max_speed_kmh": 900, "min_distance_km": 5, "points": 60}'),
 
+    -- IN BCB 669 (norma): a instituição pode adotar limite menor quando a
+    -- geolocalização está desligada. O valor de R$ 500 é estimativa.
+    ('LIMITE.sem_geolocalizacao',
+     '{"max_amount_without_geolocation": 50000}'),
+
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
     -- diferentes: um sinal sozinho não é "risco claro".

@@ -147,6 +147,7 @@ class TestDecisionLayers:
             "RASTRO.repasse_rapido",
             "QUEM_OPERA.aparelho_compartilhado",
             "QUEM_OPERA.viagem_impossivel",
+            "LIMITE.sem_geolocalizacao",
         }
 
     def test_rejected_pix_is_recorded_and_consultable(self):

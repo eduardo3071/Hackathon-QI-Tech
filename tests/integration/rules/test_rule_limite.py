@@ -293,3 +293,45 @@ class TestRuleLimiteNoturno:
 
         assert response["status"] == "approved"
         assert "LIMITE.noturno" in not_needed_signals(response)
+
+
+def known_device() -> dict:
+    """Pagador com aparelho confiável (2 Pix aprovados, o primeiro há 24 h)."""
+    context = {"payer_document": RandomGenerator.generate_cpf(), "device_id": new_device()}
+    Scenario.register_device(context["payer_document"], context["device_id"], shift_date(DAY, hours=-1))
+
+    return context
+
+
+class TestRuleLimiteSemGeolocalizacao:
+    """Regra 2 — LIMITE.sem_geolocalizacao: limite menor com a geolocalização desligada.
+
+    A IN BCB 669 permite um limite reduzido quando o app não manda a
+    geolocalização. Acima de R$ 500 (estimativa) sem ela, 2FA de limite:
+    confirmação no app, sem tipologia de fraude.
+    """
+
+    def test_above_the_reduced_limit_without_geolocation_requires_limit_two_factor(self):
+        context = known_device()
+
+        response = Scenario.send(**context, amount=50001, with_geolocation=False, transaction_date=DAY)
+
+        assert response["status"] == "two_factor_required"
+        assert response["metadata"]["step_up_reason"] == "limit"
+        assert response["metadata"]["step_up_method"] == "in_app_confirmation"
+        assert reason_for(response, "LIMITE.sem_geolocalizacao")["outcome"] == "two_factor"
+
+    def test_at_the_reduced_limit_without_geolocation_passes(self):
+        context = known_device()
+
+        response = Scenario.send(**context, amount=50000, with_geolocation=False, transaction_date=DAY)
+
+        assert reason_for(response, "LIMITE.sem_geolocalizacao") is None
+        assert "LIMITE.sem_geolocalizacao" in response["metadata"]["passed"]
+
+    def test_with_geolocation_the_reduced_limit_does_not_apply(self):
+        context = known_device()
+
+        response = Scenario.send(**context, amount=50001, transaction_date=DAY)
+
+        assert reason_for(response, "LIMITE.sem_geolocalizacao") is None

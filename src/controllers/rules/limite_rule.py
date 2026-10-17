@@ -8,12 +8,13 @@ from utils.money import format_brl
 
 UNREGISTERED_DEVICE = "LIMITE.aparelho_nao_cadastrado"
 NIGHT = "LIMITE.noturno"
+NO_GEOLOCATION = "LIMITE.sem_geolocalizacao"
 
 
 class LimiteRule(BaseRule):
     """Regra 2 — O valor cabe no limite deste contexto?
 
-    Os dois sinais daqui têm número de norma, e por isso decidem 2FA
+    Os sinais daqui são limites com base em norma, e por isso decidem 2FA
     sozinhos, sem passar pelos placares.
     """
 
@@ -24,6 +25,7 @@ class LimiteRule(BaseRule):
         self.signals = {
             UNREGISTERED_DEVICE: (0, self._evaluate_unregistered_device),
             NIGHT: (0, self._evaluate_night),
+            NO_GEOLOCATION: (1, self._evaluate_no_geolocation),
         }
 
     def _evaluate_unregistered_device(
@@ -181,4 +183,42 @@ class LimiteRule(BaseRule):
 
         return self.result(
             NIGHT, 0, PASS, "Soma noturna dentro do limite deste pagador.", observed=observed, threshold=threshold
+        )
+
+    def _evaluate_no_geolocation(
+        self, features: PixFeatures, parameters: dict, params: PolicyParameters
+    ) -> SignalResult:
+        """Geolocalização desligada: limite reduzido (faculdade da IN BCB 669).
+
+        Sem o local, a viagem impossível e a zona habitual ficam sem dado.
+        Até o limite reduzido o Pix segue; acima dele, 2FA de limite —
+        confirmação no app, sem tipologia de fraude: é limite, não suspeita.
+        """
+        max_amount = parameters["max_amount_without_geolocation"]
+        observed = {"amount": features.amount, "has_geolocation": features.has_geolocation}
+        threshold = {"max_amount_without_geolocation": max_amount}
+
+        if features.has_geolocation:
+            return self.result(
+                NO_GEOLOCATION, 1, PASS, "Pix com geolocalização.", observed=observed, threshold=threshold
+            )
+
+        if features.amount > max_amount:
+            return self.result(
+                NO_GEOLOCATION,
+                1,
+                TWO_FACTOR,
+                f"Pix sem geolocalização de {format_brl(features.amount)}, acima do limite reduzido de "
+                f"{format_brl(max_amount)} para quem não compartilha o local.",
+                observed=observed,
+                threshold=threshold,
+            )
+
+        return self.result(
+            NO_GEOLOCATION,
+            1,
+            PASS,
+            "Pix sem geolocalização, dentro do limite reduzido.",
+            observed=observed,
+            threshold=threshold,
         )
