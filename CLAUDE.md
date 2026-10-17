@@ -5,8 +5,9 @@ Entrega: link do repositório no Slack (grupo da final) até **domingo 18/10, 12
 
 ## Fontes de verdade (leia antes de mudar o desenho)
 
-- **Este arquivo foi revisado em 17/10, 15h.** Onde ele e o `docs/PLANO.md` divergirem, vale ESTE arquivo
-  (seções "Como o motor decide", "Confiança do aparelho", "Cliente que o motor ainda não conhece" e "Sinais novos").
+- **Este arquivo foi revisado em 17/10, 15h15.** Onde ele e o `docs/PLANO.md` divergirem, vale ESTE arquivo
+  (seções "Como o motor decide", "Confiança do aparelho", "Cliente que o motor ainda não conhece", "Retorno do 2FA"
+  e "Sinais novos").
 - `docs/PLANO.md` — plano completo: fases, catálogo das 8 regras e dos sinais, modelo de dados, contrato, checklist.
 - `docs/pesquisa-fraude-pix.md` — a pesquisa com a fonte de cada parâmetro (o "por quê" do README sai daqui).
 - `docs/como-o-projeto-e-organizado.md` — padrões do Base Service. Eles valem mais que qualquer preferência sua.
@@ -46,6 +47,10 @@ Entrega: link do repositório no Slack (grupo da final) até **domingo 18/10, 12
   | Conta laranja: conta PF aberta há 10 dias recebe Pix de R$ 300 de 5 pagadores distintos em 1 h | o 5º é `rejected` (conta nova + fan-in) |
   | Reenvio do mesmo `id` com o CPF mascarado (`123.456.789-09` em vez de `12345678909`) | 200 com a análise gravada (não 409) |
   | Mesmo pagador reenvia o mesmo valor para o mesmo destino com `id` novo, 3 vezes em 5 min | conta como 1 tentativa na velocidade |
+  | Celular novo pede 2FA (`face_liveness`), retorno `passed`, e 10 min depois manda R$ 800 do mesmo aparelho | o segundo não pede 2FA por aparelho |
+  | Pix com 2FA por `possible_scam`, retorno `passed`, e no dia seguinte outro Pix fora do perfil para o mesmo destino | destino NÃO é tratado como recorrente |
+  | Celular novo pede 2FA (`face_liveness`), retorno `failed`, e no dia seguinte faz 2 Pix pequenos aprovados | aparelho continua não confiável |
+  | `GET` depois de um retorno `passed` | `status: approved`, com `initial_status: two_factor_required` e o histórico |
 
 ## Contrato
 
@@ -55,7 +60,9 @@ Entrega: link do repositório no Slack (grupo da final) até **domingo 18/10, 12
   - mesmo `id` + conteúdo diferente → 409;
   - fora do schema → 400; CPF/CNPJ com dígito inválido → 422; IP que não é IPv4/IPv6 válido → 422;
   - recusa antifraude NÃO é erro HTTP: é 201 com `status: rejected`.
-- `GET /pix/transaction/{id}` → 200 com a mesma resposta do POST (é o "dossiê" da análise); desconhecido → 404.
+- `GET /pix/transaction/{id}` → 200 com a análise gravada no estado ATUAL (é o "dossiê"); desconhecido → 404.
+  Se houve retorno do 2FA, o `status` é o resultado final e o `metadata` traz o status inicial e o histórico.
+- `PATCH /pix/transaction/{id}` → retorno do 2FA (seção "Retorno do 2FA").
 - Toda rota, menos `/` e `/health_check`, exige `INTERNAL-TOKEN` (403 sem ele).
 - `geolocation` é opcional. Sinal sem dado → `not_evaluated`, nunca aprovar em silêncio.
 
@@ -101,12 +108,52 @@ A decisão segue isso à risca:
 ## Confiança do aparelho (REVISADO — fecha a brecha do Pix pequeno)
 
 - Um aparelho só é **confiável** para um pagador quando tem **pelo menos 2 Pix aprovados** desse pagador
-  **e o primeiro deles foi há pelo menos 24 h** (em relação ao `transaction_date` do Pix avaliado).
+  **e o primeiro deles foi há pelo menos 24 h** (em relação ao `transaction_date` do Pix avaliado),
+  **ou** quando passou num 2FA com `face_liveness` (seção "Retorno do 2FA").
+- "Pix aprovado" inclui o Pix que pediu 2FA e teve retorno `passed`.
 - Enquanto não é confiável: limite de R$ 200 por Pix e R$ 1.000 por dia **somando todos os Pix aprovados de
   aparelhos não confiáveis** do pagador no dia de Brasília. Acima → `two_factor_required` / `face_liveness`.
 - Aparelho não confiável também conta como "aparelho novo" para `PERFIL.valor` (pontua `ato`, não `app`).
 - Motivo: hoje um Pix de R$ 10 aprovado torna o aparelho "conhecido", e o próximo Pix de R$ 5.000 do ladrão sai
   `approved` com `warn`. Isso não pode acontecer.
+
+## Retorno do 2FA (NOVO — o motor passa a aprender com o 2FA confirmado)
+
+Por quê: o slide define só o POST e o GET. Sem retorno, um Pix que pediu 2FA fica gravado como `two_factor_required`
+para sempre, mesmo que o cliente tenha confirmado e o Pix tenha saído, e o motor nunca aprende com ele (aparelho, perfil,
+destino recorrente). A rota fica ISOLADA (método próprio no controller, arquivo de teste próprio) para poder ser removida
+sem quebrar nada se a QI Tech disser que está fora do escopo.
+
+**Contrato:** `PATCH /pix/transaction/{id}` com `INTERNAL-TOKEN` e corpo validado por `src/schemas/patch_pix_transaction.json`:
+
+```json
+{ "two_factor_result": "passed", "completed_at": "2026-10-17T22:16:10-03:00" }
+```
+
+- `two_factor_result`: `passed` ou `failed`. `completed_at`: data e hora com fuso. Campo a mais → 400.
+- Análise em `two_factor_required` → aplica o resultado e devolve 200 com a análise atualizada (mesmo DTO do GET).
+- Mesmo resultado enviado de novo → 200, sem gravar nada de novo (idempotente).
+- Resultado diferente do já gravado, ou análise que não estava em `two_factor_required` → 409.
+- `completed_at` anterior ao `transaction_date` do Pix → 422. `id` desconhecido → 404.
+- Usa a mesma trava do POST (`id` do Pix, documento do pagador, recebedor PF e aparelho), porque atualiza as agregadas.
+
+**Trilha de status, no padrão do Base Service:** tabela `analysis_status_event` (`analysis_id`, `from_status_id` que
+pode ser nulo, `to_status_id`, `event_datetime`, `created_at`). Toda análise grava um evento ao nascer
+(`null → status inicial`). O retorno do 2FA grava `two_factor_required → approved` (`passed`) ou
+`two_factor_required → rejected` (`failed`) e atualiza o `status_id` da análise. O `metadata` passa a trazer
+`initial_status`, `two_factor: {result, completed_at}` e `status_history`.
+
+**O que o motor aprende com o resultado:**
+- `passed` com `step_up_method: face_liveness` → é o cadastro do aparelho previsto pelo BCB: o aparelho fica
+  **confiável na hora** para este pagador. O Pix entra no perfil, na soma noturna e no par pagador-recebedor.
+- `passed` com `in_app_confirmation` por `limit` → o Pix entra no perfil, na soma noturna e no par, mas não
+  cadastra o aparelho sozinho.
+- `passed` com `step_up_reason: possible_scam` → o Pix entra no perfil e na soma noturna, mas **não torna o destino
+  recorrente**: a vítima de golpe confirma o Pix e costuma pagar o mesmo golpista de novo (falso investimento).
+  Grave isso no par (`scam_step_up_count`), e o atenuante de destino recorrente do `PERFIL.valor` não vale para ele.
+- `failed` → status `rejected`. Se o motivo era `account_takeover`, o aparelho fica **bloqueado para confiança por
+  24 h** para este pagador (`step_up_failed_at` em `device_owner`): nenhum Pix aprovado nesse período o torna confiável.
+- O retorno não reavalia as regras nem conta como nova tentativa na velocidade.
 
 ## Cliente que o motor ainda não conhece (NOVO — banco vazio na avaliação)
 
@@ -159,9 +206,10 @@ Se o tempo apertar, corte sinais dentro das regras, nunca a matriz de erros reai
 - Exemplo resolvido com o payload do slide: cada sinal, pontos, placar e a decisão final (igual ao teste de cenário).
 - Coluna "visibilidade" por sinal: o motor só vê Pix de clientes da QI Tech (repasse rápido, fan-in e destino que
   reaparece dependem disso).
-- "O que acontece depois do 2FA": o contrato não traz o resultado; por isso o aparelho só vira confiável com Pix
-  aprovados em dias diferentes. Próximo passo: retorno do 2FA (`two_factor_required → approved | rejected`) no padrão de
-  trilha de status do Base Service.
+- "O que acontece depois do 2FA": o slide define só o POST e o GET; acrescentamos o `PATCH` de retorno porque, sem
+  ele, o motor não aprende com o 2FA confirmado. Explicar a trilha de status, o que cada resultado ensina ao motor
+  (inclusive por que o 2FA por golpe não torna o destino recorrente) e que a rota é isolada e removível. Com exemplo
+  de `curl`.
 - Portfólio QI Tech: `face_liveness` no step-up; Background Check e Device Scan como fontes futuras de sinais;
   a tabela `fraud_marker` simula o DICT.
 - LGPD: base legal de prevenção à fraude, nada pessoal em log, prazo de retenção, e que `observed`/`threshold` no
@@ -170,5 +218,5 @@ Se o tempo apertar, corte sinais dentro das regras, nunca a matriz de erros reai
 
 ## Fora do escopo (não faça)
 
-Front-end, onboarding/cadastro de contas, endpoints de configuração ou qualquer outra API (inclusive a rota de retorno
-do 2FA, a menos que a QI Tech autorize), connectors externos, blockchain.
+Front-end, onboarding/cadastro de contas, endpoints de configuração ou qualquer outra API além do POST, do GET e do
+PATCH de retorno do 2FA, connectors externos, blockchain.
