@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from tests.utils import PayloadGenerator, RandomGenerator, RequestGenerator, Scenario, reason_for, shift_date
+from tests.utils import PayloadGenerator, RandomGenerator, RequestGenerator, Scenario, decision_of, reason_for, shift_date
 
 DAY = "2026-10-17T14:00:00-03:00"
 
@@ -146,7 +146,7 @@ class TestDecisionLayers:
         }
 
     def test_rejected_pix_is_recorded_and_consultable(self):
-        """Recusa antifraude não é erro HTTP: 201, gravado, e o GET devolve igual."""
+        """Recusa antifraude não é erro HTTP: 201, gravado, e o GET devolve a mesma decisão."""
         payload = PayloadGenerator.create_pix_payload(payer_document="111.444.777-35")
 
         status, created = RequestGenerator.POST_pix_transaction(payload)
@@ -155,5 +155,5 @@ class TestDecisionLayers:
 
         status, fetched = RequestGenerator.GET_pix_transaction(payload["id"])
         assert status == 200
-        assert fetched == created
+        assert decision_of(fetched) == created
         assert reason_for(fetched, "MARCACAO.lista")["outcome"] == "reject"

@@ -77,3 +77,15 @@ def reason_for(response: dict, signal: str) -> Optional[dict]:
 
 def not_needed_signals(response: dict) -> List[str]:
     return [item["signal"] for item in response["metadata"]["not_needed"]]
+
+
+# O que o GET (o dossiê) acrescenta ao que o POST respondeu: a história
+# da decisão, não a decisão.
+DOSSIER_ONLY_FIELDS = ("status_history",)
+
+
+def decision_of(response: dict) -> dict:
+    """A resposta sem o que só o dossiê traz: o que o POST respondeu."""
+    metadata = {field: value for field, value in response["metadata"].items() if field not in DOSSIER_ONLY_FIELDS}
+
+    return {"key": response["key"], "status": response["status"], "metadata": metadata}

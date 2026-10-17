@@ -6,11 +6,12 @@ from models import AnalysisStatus, PixTransaction, PolicyVersion
 
 
 class Analysis(Base):
-    """A decisão sobre um Pix. Nasce final e nunca muda.
+    """A decisão sobre um Pix.
 
-    Não há trilha de eventos de status (como a do sample_entity do Base
-    Service): o contrato não tem retorno do 2FA, então a análise não
-    troca de estado depois de gravada.
+    O que foi decidido nunca muda. O status muda uma única vez, pelo
+    retorno do 2FA, e cada status deixa uma linha em
+    `analysis_status_event` — a mesma trilha do sample_entity do Base
+    Service. O status inicial mora no primeiro evento.
     """
 
     __tablename__ = "analysis"
@@ -46,5 +47,11 @@ class Analysis(Base):
         "AnalysisRuleResult",
         back_populates="analysis",
         order_by="asc(AnalysisRuleResult.id)",
+        lazy="selectin",
+    )
+    status_events = relationship(
+        "AnalysisStatusEvent",
+        back_populates="analysis",
+        order_by="asc(AnalysisStatusEvent.id)",
         lazy="selectin",
     )

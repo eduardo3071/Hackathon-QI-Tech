@@ -9,8 +9,11 @@ REASON_OUTCOMES = ("warn", "two_factor", "reject")
 class PixAnalysisDTO:
     """Traduz a análise gravada na resposta do contrato: `key`, `status` e `metadata`.
 
-    O mesmo DTO serve o POST e o GET, e é isso que garante que os dois
-    devolvem a MESMA resposta: não existem dois jeitos de montar.
+    O mesmo DTO serve o POST e o GET, e é isso que garante que a decisão
+    sai igual nos dois: não existem dois jeitos de montar. O GET é o
+    dossiê — a decisão (`obj_to_dict`) mais a história dela
+    (`obj_to_dossier_dict`), como o `obj_to_dict` e o
+    `obj_to_simplified_dict` do sample_entity do Base Service.
 
     Repare no que não sai: nenhum `id` interno, nenhuma coluna de
     `features`. O que este dicionário monta é exatamente o que vai para o
@@ -58,6 +61,28 @@ class PixAnalysisDTO:
             "key": analysis.analysis_key,
             "status": analysis.status.enumerator,
             "metadata": metadata,
+        }
+
+    @staticmethod
+    def obj_to_dossier_dict(analysis: Analysis) -> dict:
+        """A decisão mais a trilha de status: por onde a análise passou, não só onde está."""
+        analysis_dto = PixAnalysisDTO.obj_to_dict(analysis)
+        analysis_dto["metadata"]["status_history"] = [
+            PixAnalysisDTO.status_event_to_dict(status_event) for status_event in analysis.status_events
+        ]
+
+        return analysis_dto
+
+    @staticmethod
+    def status_event_to_dict(status_event) -> dict:
+        from_status = None
+        if status_event.from_status is not None:
+            from_status = status_event.from_status.enumerator
+
+        return {
+            "from_status": from_status,
+            "to_status": status_event.to_status.enumerator,
+            "event_datetime": status_event.event_datetime.isoformat(),
         }
 
     @staticmethod

@@ -136,8 +136,12 @@ CREATE INDEX pix_transaction_source_date ON pix_transaction (source_account_id, 
 CREATE INDEX pix_transaction_destination_date ON pix_transaction (destination_account_id, transaction_date);
 
 
--- A decisão. Nasce final e nunca muda (append-only): o contrato não tem
--- retorno do 2FA, então não há troca de status para registrar.
+-- A decisão. O que foi decidido (placares, motivo e método do 2FA,
+-- features) nasce aqui e nunca muda. O status muda UMA única vez, pelo
+-- retorno do 2FA (`PATCH /pix/transaction/{id}`): `two_factor_required`
+-- vira `approved` ou `rejected`. Cada status, inclusive o primeiro, é uma
+-- linha em `analysis_status_event`, e é lá que o status inicial continua
+-- gravado depois da troca.
 CREATE TABLE analysis(
     id                              SERIAL PRIMARY KEY,
     analysis_key                    CHAR(36) NOT NULL,
@@ -192,6 +196,28 @@ CREATE TABLE analysis_rule_result(
 );
 
 CREATE INDEX analysis_rule_result_analysis ON analysis_rule_result (analysis_id);
+
+-- Trilha de status da análise, no padrão do `sample_entity_status_event`
+-- do Base Service. Toda análise grava um evento ao nascer (`from_status_id`
+-- nulo → status decidido, na data do Pix) e, se houver retorno do 2FA, um
+-- segundo (`two_factor_required` → `approved` ou `rejected`, na data em que
+-- o 2FA terminou). Só se acrescenta: nenhum evento é alterado ou apagado.
+-- Se a cadeia de hashes da Fase 3 entrar, ela cobre a análise original, e
+-- os eventos ficam fora dela, só acrescentados.
+--
+-- O índice único é a regra "um nascimento e no máximo uma troca" escrita
+-- no banco: um segundo retorno do 2FA para a mesma análise não grava.
+CREATE TABLE analysis_status_event(
+    id                              SERIAL PRIMARY KEY,
+    analysis_id                     INTEGER NOT NULL REFERENCES analysis(id),
+    from_status_id                  INTEGER REFERENCES analysis_status(id),
+    to_status_id                    INTEGER NOT NULL REFERENCES analysis_status(id),
+    event_datetime                  TIMESTAMPTZ NOT NULL,
+    created_at                      TIMESTAMPTZ NOT NULL DEFAULT(NOW())
+);
+
+CREATE UNIQUE INDEX analysis_status_event_single_change
+    ON analysis_status_event (analysis_id, (from_status_id IS NULL));
 
 
 -- ─────────────────────────────────────────────────────────────────

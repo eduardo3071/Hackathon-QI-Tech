@@ -105,7 +105,7 @@ class PixTransactionController(BaseController):
         if pix_transaction is None:
             raise NotFoundPixTransaction(pix_id)
 
-        return PixAnalysisDTO.obj_to_dict(pix_transaction.analysis)
+        return PixAnalysisDTO.obj_to_dossier_dict(pix_transaction.analysis)
 
     def _replay(self, recorded_pix, pix: dict) -> dict:
         """O mesmo `id` de novo: retentativa devolve o gravado; conteúdo novo é conflito.
@@ -162,6 +162,7 @@ class PixTransactionController(BaseController):
                 "features": features.to_dict(),
             },
             status_enumerator=decision.status,
+            event_datetime=pix_transaction.transaction_date,
         )
 
         for result in engine_result.results:
