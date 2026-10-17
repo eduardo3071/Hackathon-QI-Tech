@@ -1,3 +1,4 @@
+from random import randint
 from uuid import uuid4
 
 from tests.utils import RandomGenerator, Scenario, reason_for, shift_date
@@ -187,3 +188,53 @@ class TestRuleQuemOperaCanalIncomum:
         response = Scenario.send(channel="internet_banking", amount=90000, transaction_date=DAY)
 
         assert "QUEM_OPERA.canal_incomum" in not_evaluated_signals(response)
+
+
+def random_ip() -> str:
+    """Um IP só deste teste: rodar a suíte de novo sem limpar o banco não soma pagadores de antes."""
+    return f"10.{randint(0, 255)}.{randint(0, 255)}.{randint(1, 254)}"
+
+
+def payers_on_ip(ip: str, count: int) -> None:
+    """Um Pix pequeno de um CPF diferente, de um aparelho diferente, saído do mesmo IP."""
+    for minute in range(count):
+        response = Scenario.send(ip=ip, amount=5000, transaction_date=shift_date(DAY, minutes=-30 + minute))
+        assert response["status"] != "rejected", response
+
+
+class TestRuleQuemOperaIpCompartilhado:
+    """Regra 5 — QUEM_OPERA.ip_compartilhado: quantas pessoas pagam desta rede?
+
+    Três ou mais CPFs pagadores no mesmo IP em 1 h. Redes móveis (CGNAT)
+    põem muita gente atrás do mesmo IP, por isso o sinal só pontua `ato`
+    junto com aparelho não confiável, e abaixo do corte: nunca decide só.
+    """
+
+    def test_third_payer_on_the_same_ip_with_untrusted_device_scores_takeover(self):
+        ip = random_ip()
+        payers_on_ip(ip, 2)
+
+        response = Scenario.send(ip=ip, amount=15000, transaction_date=DAY)
+
+        reason = reason_for(response, "QUEM_OPERA.ip_compartilhado")
+        assert reason["typology"] == "ato"
+        assert reason["observed"]["distinct_payers"] == 3
+        assert response["status"] == "approved"
+
+    def test_second_payer_on_the_same_ip_passes(self):
+        ip = random_ip()
+        payers_on_ip(ip, 1)
+
+        response = Scenario.send(ip=ip, amount=15000, transaction_date=DAY)
+
+        assert reason_for(response, "QUEM_OPERA.ip_compartilhado") is None
+
+    def test_shared_ip_with_trusted_device_does_not_score(self):
+        ip = random_ip()
+        context = payer_last_seen_in_sao_paulo(hours_before=2)
+        payers_on_ip(ip, 2)
+
+        response = Scenario.send(**context, ip=ip, amount=15000, transaction_date=DAY)
+
+        assert reason_for(response, "QUEM_OPERA.ip_compartilhado") is None
+        assert "QUEM_OPERA.ip_compartilhado" in response["metadata"]["passed"]

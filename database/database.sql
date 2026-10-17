@@ -384,6 +384,12 @@ CROSS JOIN (VALUES
     ('QUEM_OPERA.canal_incomum',
      '{"points": 30}'),
 
+    -- Estimativa: 3 ou mais CPFs pagadores no mesmo IP em 1 h, SÓ com
+    -- aparelho não confiável (CGNAT põe muita gente no mesmo IP). Pontua
+    -- invasão abaixo do corte (20): nunca decide sozinho.
+    ('QUEM_OPERA.ip_compartilhado',
+     '{"window_minutes": 60, "min_distinct_payers": 3, "points": 20}'),
+
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
     -- diferentes: um sinal sozinho não é "risco claro".

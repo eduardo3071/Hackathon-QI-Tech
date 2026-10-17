@@ -191,3 +191,17 @@ class PixFeatureRepository:
             )
             .exists()
         ).scalar()
+
+    def distinct_payers_on_ip(self, ip: str, start: datetime, end: datetime) -> List[str]:
+        """Os documentos distintos que pagaram deste IP na janela, com qualquer status."""
+        rows = (
+            self.session.query(PixTransaction.payer_document_number)
+            .filter(
+                PixTransaction.ip == ip,
+                PixTransaction.transaction_date >= start,
+                PixTransaction.transaction_date <= end,
+            )
+            .distinct()
+            .all()
+        )
+        return [row.payer_document_number for row in rows]

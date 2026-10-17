@@ -8,6 +8,7 @@ from utils.money import format_brl
 SHARED_DEVICE = "QUEM_OPERA.aparelho_compartilhado"
 IMPOSSIBLE_TRAVEL = "QUEM_OPERA.viagem_impossivel"
 UNUSUAL_CHANNEL = "QUEM_OPERA.canal_incomum"
+SHARED_IP = "QUEM_OPERA.ip_compartilhado"
 
 
 class QuemOperaRule(BaseRule):
@@ -26,6 +27,7 @@ class QuemOperaRule(BaseRule):
             IMPOSSIBLE_TRAVEL: (1, self._evaluate_impossible_travel),
             UNUSUAL_CHANNEL: (1, self._evaluate_unusual_channel),
             SHARED_DEVICE: (2, self._evaluate_shared_device),
+            SHARED_IP: (2, self._evaluate_shared_ip),
         }
 
     def _evaluate_shared_device(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> SignalResult:
@@ -185,6 +187,42 @@ class QuemOperaRule(BaseRule):
             1,
             PASS,
             "Canal de costume do pagador, ou valor dentro do limite de partida.",
+            observed=observed,
+            threshold=threshold,
+        )
+
+    def _evaluate_shared_ip(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> SignalResult:
+        """Muitos CPFs pagando do mesmo IP na última hora — só conta com aparelho não confiável.
+
+        Rede móvel e Wi-Fi público põem centenas de pessoas atrás do mesmo
+        IP (CGNAT). Sozinho, o IP não diz nada; com um aparelho que ainda
+        não é confiável para este pagador, reforça a suspeita de invasão.
+        Pontua `ato` abaixo do corte: nunca decide sozinho.
+        """
+        distinct_payers = features.ip_distinct_payers
+        min_distinct_payers = parameters["min_distinct_payers"]
+
+        observed = {"distinct_payers": distinct_payers, "device_trusted": features.device_trusted}
+        threshold = {"min_distinct_payers": min_distinct_payers, "window_minutes": parameters["window_minutes"]}
+
+        if distinct_payers >= min_distinct_payers and not features.device_trusted:
+            return self.result(
+                SHARED_IP,
+                2,
+                WARN,
+                f"{distinct_payers} CPFs diferentes pagaram deste IP em {parameters['window_minutes']} minutos, "
+                "e o aparelho ainda não é confiável para este pagador.",
+                typology=ATO,
+                points=parameters["points"],
+                observed=observed,
+                threshold=threshold,
+            )
+
+        return self.result(
+            SHARED_IP,
+            2,
+            PASS,
+            f"{distinct_payers} CPF(s) pagador(es) neste IP na janela, ou aparelho confiável.",
             observed=observed,
             threshold=threshold,
         )

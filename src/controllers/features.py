@@ -49,6 +49,7 @@ class PixFeatures:
 
     # Regra 5 — quem está operando
     device_distinct_payers: Optional[int]
+    ip_distinct_payers: Optional[int]
     has_geolocation: bool
     channel: str
     channel_used_before: Optional[bool]

@@ -87,6 +87,7 @@ class FeatureBuilder:
             device_distinct_payers=self._device_distinct_payers(
                 pix, device, params.of("QUEM_OPERA.aparelho_compartilhado")
             ),
+            ip_distinct_payers=self._ip_distinct_payers(pix, params.of("QUEM_OPERA.ip_compartilhado")),
             has_geolocation=pix["latitude"] is not None,
             channel=pix["channel"],
             channel_used_before=self._channel_used_before(pix, params.of("QUEM_OPERA.canal_incomum")),
@@ -269,3 +270,15 @@ class FeatureBuilder:
         return self.pix_feature_repository.payer_used_channel(
             pix["payer_document"], pix["channel"], AnalysisStatus.APPROVED
         )
+
+    def _ip_distinct_payers(self, pix: dict, parameters):
+        """CPFs pagadores distintos neste IP na janela, contando o pagador deste Pix."""
+        if parameters is None:
+            return None
+
+        window_start = pix["transaction_date"] - timedelta(minutes=parameters["window_minutes"])
+
+        payers = set(self.pix_feature_repository.distinct_payers_on_ip(pix["ip"], window_start, pix["transaction_date"]))
+        payers.add(pix["payer_document"])
+
+        return len(payers)

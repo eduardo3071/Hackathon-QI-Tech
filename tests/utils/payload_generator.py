@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from random import randint
 from uuid import uuid4
 
 from tests.utils.random_generator import RandomGenerator
@@ -30,13 +31,14 @@ class PayloadGenerator:
         payer_opening_date: str = "2025-03-02T10:00:00-03:00",
         device_id: str = None,
         channel: str = "app",
+        ip: str = None,
         geolocation: dict = None,
         with_geolocation: bool = True,
     ) -> dict:
         """Um Pix válido no formato do slide, com qualquer campo trocado a pedido.
 
         Sem argumento nenhum, tudo que identifica alguém sai aleatório
-        (id, CPFs, conta destino, aparelho): dois testes nunca dividem
+        (id, CPFs, conta destino, aparelho, IP): dois testes nunca dividem
         histórico por acaso. Quem testa histórico passa o mesmo
         documento ou aparelho de propósito.
 
@@ -59,13 +61,19 @@ class PayloadGenerator:
         if device_id is None:
             device_id = f"dvc-{uuid4().hex[:12]}"
 
+        # IP aleatório numa rede privada (16 milhões de endereços): com um
+        # IP fixo, todos os testes do mesmo dia "dividiriam" a mesma rede, e
+        # o sinal de IP compartilhado dispararia em todo Pix.
+        if ip is None:
+            ip = f"10.{randint(0, 255)}.{randint(0, 255)}.{randint(1, 254)}"
+
         if geolocation is None:
             geolocation = {"latitude": -23.56, "longitude": -46.65}
 
         source = {
             "device_id": device_id,
             "channel": channel,
-            "ip": "198.51.100.23",
+            "ip": ip,
         }
         if with_geolocation:
             source["geolocation"] = geolocation
