@@ -1,0 +1,171 @@
+from uuid import uuid4
+
+from tests.utils import RandomGenerator, Scenario, not_needed_signals, reason_for, shift_date
+
+DAY = "2026-10-17T14:00:00-03:00"
+NIGHT = "2026-10-17T22:15:00-03:00"
+
+
+def new_device() -> str:
+    return f"dvc-{uuid4().hex[:12]}"
+
+
+class TestRuleLimiteAparelhoNaoCadastrado:
+    """Regra 2 — LIMITE.aparelho_nao_cadastrado.
+
+    Desde nov/2024 o BCB limita aparelho que nunca fez Pix para o usuário
+    a R$ 200 por Pix e R$ 1.000 por dia, e o cadastro exige 2FA. Aqui o
+    2FA É o cadastro: depois do primeiro Pix aprovado, o aparelho vira
+    conhecido.
+    """
+
+    def test_new_device_above_200_requires_two_factor(self):
+        response = Scenario.send(amount=20001, transaction_date=DAY)
+
+        assert response["status"] == "two_factor_required"
+        assert response["metadata"]["recommended_action"] == "step_up"
+        assert reason_for(response, "LIMITE.aparelho_nao_cadastrado")["outcome"] == "two_factor"
+
+    def test_new_device_at_exactly_200_is_approved(self):
+        response = Scenario.send(amount=20000, transaction_date=DAY)
+
+        assert response["status"] == "approved"
+        assert reason_for(response, "LIMITE.aparelho_nao_cadastrado") is None
+
+    def test_known_device_has_no_200_limit(self):
+        payer = RandomGenerator.generate_cpf()
+        device = new_device()
+        Scenario.register_device(payer, device, shift_date(DAY, days=-1))
+
+        response = Scenario.send(payer_document=payer, device_id=device, amount=50000, transaction_date=DAY)
+
+        assert response["status"] == "approved"
+        assert reason_for(response, "LIMITE.aparelho_nao_cadastrado") is None
+
+    def test_daily_limit_adds_up_across_unregistered_devices(self):
+        """Cinco aparelhos novos de R$ 200 somam R$ 1.000 no dia: o próximo centavo pede 2FA.
+
+        Cada aparelho, sozinho, respeita os R$ 200. O teto diário existe
+        justamente para quem troca de aparelho para fracionar.
+        """
+        payer = RandomGenerator.generate_cpf()
+
+        for index in range(5):
+            response = Scenario.send(
+                payer_document=payer,
+                amount=20000,
+                transaction_date=shift_date(DAY, minutes=15 * index),
+            )
+            assert response["status"] == "approved", f"o aparelho {index + 1} já pediu 2FA"
+
+        response = Scenario.send(payer_document=payer, amount=1, transaction_date=shift_date(DAY, minutes=75))
+
+        assert response["status"] == "two_factor_required"
+        reason = reason_for(response, "LIMITE.aparelho_nao_cadastrado")
+        assert reason["observed"]["day_amount"] == 100001
+
+
+class TestRuleLimiteNoturno:
+    """Regra 2 — LIMITE.noturno.
+
+    A Res. BCB 142 fixa R$ 1.000 entre 20h e 6h, PF para PF. O motor não
+    recebe o limite que o cliente configurou, então isto é SINAL, não
+    teto: passa se o valor cabe no maior Pix noturno que esse pagador já
+    teve aprovado; fora disso, 2FA.
+    """
+
+    def _payer_with_known_device_and_recurrent_payee(self) -> dict:
+        """Pagador com aparelho conhecido que já pagou este destino de dia.
+
+        O destino recorrente isola o sinal noturno: sem ele, um valor
+        acima de R$ 1.000 também dispararia o sinal de perfil.
+        """
+        context = {
+            "payer_document": RandomGenerator.generate_cpf(),
+            "device_id": new_device(),
+            "payee_document": RandomGenerator.generate_cpf(),
+            "payee_account_number": RandomGenerator.generate_account_number(),
+        }
+        Scenario.send(**context, amount=10000, transaction_date=shift_date(DAY, days=-1))
+
+        return context
+
+    def test_night_pix_above_1000_requires_two_factor(self):
+        context = self._payer_with_known_device_and_recurrent_payee()
+
+        response = Scenario.send(**context, amount=100001, transaction_date=NIGHT)
+
+        assert response["status"] == "two_factor_required"
+        reason = reason_for(response, "LIMITE.noturno")
+        assert reason["outcome"] == "two_factor"
+        assert reason["observed"]["night_amount"] == 100001
+
+    def test_night_pix_at_exactly_1000_is_approved(self):
+        context = self._payer_with_known_device_and_recurrent_payee()
+
+        response = Scenario.send(**context, amount=100000, transaction_date=NIGHT)
+
+        assert response["status"] == "approved"
+        assert reason_for(response, "LIMITE.noturno") is None
+
+    def test_night_amount_adds_up_within_the_same_night(self):
+        """R$ 600 às 22h15 e R$ 600 às 23h15: a segunda passa do teto somado."""
+        context = self._payer_with_known_device_and_recurrent_payee()
+
+        first = Scenario.send(**context, amount=60000, transaction_date=NIGHT)
+        assert first["status"] == "approved"
+
+        second = Scenario.send(**context, amount=60000, transaction_date=shift_date(NIGHT, hours=1))
+
+        assert second["status"] == "two_factor_required"
+        assert reason_for(second, "LIMITE.noturno")["observed"]["night_amount"] == 120000
+
+    def test_within_the_largest_night_pix_already_approved(self):
+        """Quem já teve aprovado um Pix noturno de R$ 3.000 aumentou o próprio limite.
+
+        O Pix de R$ 3.000 vai para um lojista (PJ), onde o teto PF→PF não
+        vale. Depois dele, um Pix PF→PF de R$ 2.000 cabe no histórico
+        noturno do pagador e passa.
+        """
+        context = self._payer_with_known_device_and_recurrent_payee()
+
+        store = Scenario.send(
+            payer_document=context["payer_document"],
+            device_id=context["device_id"],
+            payee_document=RandomGenerator.generate_cnpj(),
+            amount=300000,
+            transaction_date=shift_date(NIGHT, days=-1),
+        )
+        assert store["status"] == "approved"
+
+        response = Scenario.send(**context, amount=200000, transaction_date=NIGHT)
+
+        assert response["status"] == "approved"
+        assert reason_for(response, "LIMITE.noturno") is None
+
+    def test_daytime_pix_is_not_a_night_pix(self):
+        context = self._payer_with_known_device_and_recurrent_payee()
+
+        response = Scenario.send(**context, amount=150000, transaction_date=DAY)
+
+        assert reason_for(response, "LIMITE.noturno") is None
+
+    def test_company_payee_is_outside_the_night_rule(self):
+        context = self._payer_with_known_device_and_recurrent_payee()
+        context["payee_document"] = RandomGenerator.generate_cnpj()
+
+        response = Scenario.send(**context, amount=100001, transaction_date=NIGHT)
+
+        assert reason_for(response, "LIMITE.noturno") is None
+        assert "LIMITE.noturno" in not_needed_signals(response)
+
+    def test_same_ownership_is_outside_the_night_rule(self):
+        """Mover o próprio dinheiro de madrugada não é Pix entre pessoas distintas."""
+        context = self._payer_with_known_device_and_recurrent_payee()
+        context["payee_document"] = context["payer_document"]
+        context["payee_account_number"] = RandomGenerator.generate_account_number()
+
+        response = Scenario.send(**context, amount=500000, transaction_date=NIGHT)
+
+        assert response["status"] == "approved"
+        assert "LIMITE.noturno" in not_needed_signals(response)

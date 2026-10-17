@@ -219,19 +219,98 @@ CREATE TABLE payer_payee_pair(
 );
 
 -- Aparelho × documento: "este aparelho já fez Pix aprovado para esta pessoa?"
+--
+-- Aparelho "cadastrado" = já tem Pix aprovado deste pagador. O primeiro
+-- Pix aprovado de cada aparelho é, por definição, o único que saiu
+-- enquanto ele NÃO era cadastrado — e é ele que conta no teto diário de
+-- R$ 1.000 do BCB para aparelho não cadastrado. Por isso a coluna aponta
+-- para o Pix, e não só guarda a data.
 CREATE TABLE device_owner(
     id                              SERIAL PRIMARY KEY,
     device_id                       INTEGER NOT NULL REFERENCES device(id),
     document_number                 VARCHAR(14) NOT NULL,
     first_seen_at                   TIMESTAMPTZ NOT NULL,
-    first_approved_at               TIMESTAMPTZ,
+    first_approved_pix_id           INTEGER REFERENCES pix_transaction(id),
     created_at                      TIMESTAMPTZ NOT NULL DEFAULT(NOW()),
     UNIQUE(device_id, document_number)
 );
 
 
 -- ─────────────────────────────────────────────────────────────────
--- Seed: a política ativa.
+-- Seed: a política ativa e os parâmetros de cada sinal.
+--
+-- Valores em centavos (R$ 200 = 20000). Cada parâmetro é "norma" (com a
+-- fonte) ou "estimativa" (calibrável, sem fonte que o valide para o Pix);
+-- a origem de cada um está no README e em docs/pesquisa-fraude-pix.md.
+--
+-- Pontos e cortes dos placares (ato/app/mule) são estimativas do grupo:
+-- o desenho é que um sinal de conta laranja forte (conta nova recebendo
+-- o primeiro crédito fora do perfil, 60) recusa sozinho, e os fracos
+-- (fan-in 40, conta nova 20) só recusam combinados.
 -- ─────────────────────────────────────────────────────────────────
 INSERT INTO policy_version (version, ml_mode, is_active) VALUES
 ('2026.10.1', 'shadow', TRUE);
+
+INSERT INTO rule_parameter (policy_version_id, signal_code, enabled, parameters)
+SELECT policy_version.id, parameter.signal_code, TRUE, parameter.parameters::JSONB
+FROM policy_version
+CROSS JOIN (VALUES
+    -- Res. BCB 587/2026 (norma): marcação própria recusa sempre. Marcação
+    -- de outro PSP vale na janela de 90 dias do DICT (d90).
+    ('MARCACAO.lista',
+     '{"third_party_window_days": 90}'),
+
+    -- Res. BCB 403/2024 e nota BCB 20231 (norma): R$ 200 por Pix e
+    -- R$ 1.000 por dia em aparelho não cadastrado.
+    ('LIMITE.aparelho_nao_cadastrado',
+     '{"max_amount_per_pix": 20000, "max_amount_per_day": 100000}'),
+
+    -- Res. BCB 142/2021 (norma): R$ 1.000 entre 20h e 6h, PF para PF.
+    ('LIMITE.noturno',
+     '{"night_start_hour": 20, "night_end_hour": 6, "max_night_amount": 100000}'),
+
+    -- Estimativa: 5 tentativas em 10 min pedem 2FA, 10 recusam — se a
+    -- janela somar R$ 1.000 ou mais. Abaixo disso é rajada de valor baixo
+    -- (racha de conta), e só 10 tentativas pedem 2FA.
+    ('RITMO.velocidade',
+     '{"window_minutes": 10, "two_factor_count": 5, "reject_count": 10, "min_window_amount": 100000}'),
+
+    -- Estimativa: acima do P95 e de 5x a mediana dos aprovados em 90 dias,
+    -- com pelo menos 5 Pix; sem histórico, R$ 1.000 (entre o Pix médio
+    -- entre pessoas, R$ 273, e a fraude média, R$ 1.735).
+    ('PERFIL.valor',
+     '{"window_days": 90, "min_history": 5, "percentile": 95, "median_multiplier": 5, "fallback_amount": 100000, "app_points": 40, "ato_points": 60}'),
+
+    -- Estimativa: conta destino com menos de 30 dias (fator do art. 39-B da
+    -- Res. BCB 147). Primeiro crédito fora do perfil pontua 60; só a
+    -- idade, 20.
+    ('CONTA_RECEBEDORA.conta_nova',
+     '{"max_account_age_days": 30, "points": 60, "age_only_points": 20}'),
+
+    -- Estimativa: 5 pagadores distintos em 1h para uma conta PF.
+    ('CONTA_RECEBEDORA.fan_in',
+     '{"window_minutes": 60, "min_distinct_payers": 5, "points": 40}'),
+
+    -- Estimativa: cortes dos placares e tempo limite da camada 2.
+    ('DECISAO.placares',
+     '{"ato_cut": 60, "app_cut": 60, "mule_cut": 60, "app_warn_cut": 30, "deep_layer_timeout_ms": 300}')
+) AS parameter(signal_code, parameters)
+WHERE policy_version.version = '2026.10.1';
+
+
+-- ─────────────────────────────────────────────────────────────────
+-- Seed: marcações de fraude de demonstração, simulando o DICT.
+--
+-- Os documentos são fictícios (dígitos verificadores válidos) e servem
+-- à demonstração e aos testes. Os testes NÃO escrevem no banco: o
+-- cenário de marcação nasce aqui.
+-- ─────────────────────────────────────────────────────────────────
+INSERT INTO fraud_marker (document_number, marker_type, origin, marked_at, valid_until) VALUES
+-- marcação própria vigente → recusa
+('11144477735', 'mule_account', 'own', '2026-09-01T10:00:00-03:00', '2031-09-01T10:00:00-03:00'),
+-- marcação de outro PSP há menos de 90 dias → recusa
+('22255588846', 'scammer_account', 'third_party', '2026-09-20T10:00:00-03:00', '2031-09-20T10:00:00-03:00'),
+-- marcação de outro PSP há mais de 90 dias → fora da janela do DICT
+('33366699957', 'mule_account', 'third_party', '2025-01-10T10:00:00-03:00', '2030-01-10T10:00:00-03:00'),
+-- marcação própria vencida → não vale mais
+('44477700083', 'mule_account', 'own', '2021-01-01T10:00:00-03:00', '2026-01-01T10:00:00-03:00');

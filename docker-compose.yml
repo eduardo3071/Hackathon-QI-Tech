@@ -64,6 +64,13 @@ services:
     ports:
       # Mesma ideia: DB_PORT=5433 no .env se a 5432 estiver ocupada.
       - "${DB_PORT:-5432}:5432"
+    volumes:
+      # O schema entra por volume, e não só pelo COPY do database/Dockerfile:
+      # o COPY acontece quando a IMAGEM é montada, e o compose reaproveita a
+      # imagem que já existe. Sem esta linha, quem puxa um database.sql novo
+      # e roda `docker compose down -v && docker compose up` recria o banco
+      # com o SQL ANTIGO — e toma "column ... does not exist" sem entender.
+      - ./database/database.sql:/docker-entrypoint-initdb.d/01.sql:ro
     healthcheck:
       # A API so sobe depois que o banco responder de verdade.
       test: ["CMD-SHELL", "pg_isready -U bootcamp -d bootcamp"]

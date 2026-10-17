@@ -14,6 +14,12 @@ SERVICE_NAME = os.environ.get("SERVICE_NAME", "pix-antifraude-api")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 INTERNAL_TOKEN = os.environ.get("INTERNAL_TOKEN")
 
+# O fuso das regras de horário. O Pix chega com o fuso de quem mandou, e o
+# regulamento deixa a escolha do fuso ao participante (FAQ do BCB sobre
+# limites): este motor declara Brasília, e toda regra de horário converte
+# para cá antes de olhar a hora.
+LOCAL_TIMEZONE = "America/Sao_Paulo"
+
 # Rotas públicas: não exigem o header INTERNAL-TOKEN. São as duas que
 # precisam responder pra quem ainda não tem token nenhum: a raiz, que
 # diz quem é este serviço, e o health check, que o Docker consulta pra

@@ -3,14 +3,21 @@ import json
 from datetime import datetime
 from typing import Tuple
 
+from controllers.analysis_engine import AnalysisEngine, EngineResult
 from controllers.base_controller import BaseController
+from controllers.feature_builder import FeatureBuilder
+from controllers.features import PixFeatures
+from controllers.rules import PolicyParameters
 from dtos import PixAnalysisDTO
 from errors import InvalidDate, InvalidDocumentNumber, NoActivePolicy, NotFoundPixTransaction, PixTransactionConflict
-from models import Account, AnalysisStatus
+from models import Account, AnalysisStatus, Device, PixTransaction
 from repositories import (
     AccountRepository,
     AnalysisRepository,
+    DeviceOwnerRepository,
     DeviceRepository,
+    PayerPayeePairRepository,
+    PayerProfileRepository,
     PixTransactionRepository,
     PolicyRepository,
 )
@@ -24,9 +31,14 @@ class PixTransactionController(BaseController):
         super().__init__(__name__)
         self.account_repository = AccountRepository(self.context)
         self.analysis_repository = AnalysisRepository(self.context)
+        self.device_owner_repository = DeviceOwnerRepository(self.context)
         self.device_repository = DeviceRepository(self.context)
+        self.payer_payee_pair_repository = PayerPayeePairRepository(self.context)
+        self.payer_profile_repository = PayerProfileRepository(self.context)
         self.pix_transaction_repository = PixTransactionRepository(self.context)
         self.policy_repository = PolicyRepository(self.context)
+        self.feature_builder = FeatureBuilder(self.context)
+        self.analysis_engine = AnalysisEngine()
 
     def create(self, pix_payload: dict) -> Tuple[dict, bool]:
         """Analisa um Pix e devolve `(análise, se_foi_criada_agora)`.
@@ -55,24 +67,21 @@ class PixTransactionController(BaseController):
         policy = self.policy_repository.get_active()
         if policy is None:
             raise NoActivePolicy()
+        params = PolicyParameters(policy)
 
-        pix_transaction = self._record_pix(pix)
+        source_account = self.account_repository.get_or_create(pix["source_account"])
+        destination_account = self.account_repository.get_or_create(pix["destination_account"])
+        device = self.device_repository.get_or_create(pix["device_id"], pix["transaction_date"])
 
-        analysis = self.analysis_repository.create(
-            analysis_data={
-                "pix_transaction": pix_transaction,
-                "policy_version": policy,
-                "typology": None,
-                "recommended_action": "none",
-                "score_ato": 0,
-                "score_app": 0,
-                "score_mule": 0,
-                "path": "fast",
-                "layers": [0, 1],
-                "features": {},
-            },
-            status_enumerator=AnalysisStatus.APPROVED,
-        )
+        # As features são calculadas ANTES de o Pix ser gravado: toda
+        # contagem é do histórico anterior a ele, e nenhuma consulta
+        # precisa lembrar de excluí-lo.
+        features = self.feature_builder.build(pix, destination_account, device, params)
+        engine_result = self.analysis_engine.run(features, params)
+
+        pix_transaction = self._record_pix(pix, source_account, destination_account, device)
+        analysis = self._record_analysis(pix_transaction, policy, features, engine_result)
+        self._update_aggregates(pix, pix_transaction, destination_account, device, features, engine_result)
 
         analysis_dto = PixAnalysisDTO.obj_to_dict(analysis)
         self.session.commit()
@@ -100,11 +109,9 @@ class PixTransactionController(BaseController):
 
         return PixAnalysisDTO.obj_to_dict(recorded_pix.analysis)
 
-    def _record_pix(self, pix: dict):
-        source_account = self.account_repository.get_or_create(pix["source_account"])
-        destination_account = self.account_repository.get_or_create(pix["destination_account"])
-        device = self.device_repository.get_or_create(pix["device_id"], pix["transaction_date"])
-
+    def _record_pix(
+        self, pix: dict, source_account: Account, destination_account: Account, device: Device
+    ) -> PixTransaction:
         return self.pix_transaction_repository.create(
             {
                 "external_id": pix["external_id"],
@@ -123,6 +130,89 @@ class PixTransactionController(BaseController):
                 "raw_payload": pix["raw_payload"],
             }
         )
+
+    def _record_analysis(self, pix_transaction, policy, features: PixFeatures, engine_result: EngineResult):
+        """A decisão e um resultado por sinal — inclusive os que passaram ou não rodaram."""
+        decision = engine_result.decision
+
+        analysis = self.analysis_repository.create(
+            analysis_data={
+                "pix_transaction": pix_transaction,
+                "policy_version": policy,
+                "typology": decision.typology,
+                "recommended_action": decision.recommended_action,
+                "score_ato": decision.scores["ato"],
+                "score_app": decision.scores["app"],
+                "score_mule": decision.scores["mule"],
+                "path": engine_result.path,
+                "layers": engine_result.layers,
+                "features": features.to_dict(),
+            },
+            status_enumerator=decision.status,
+        )
+
+        for result in engine_result.results:
+            self.analysis_repository.add_rule_result(
+                analysis,
+                {
+                    "rule_code": result.rule_code,
+                    "signal_code": result.signal_code,
+                    "layer": result.layer,
+                    "outcome": result.outcome,
+                    "typology": result.typology,
+                    "points": result.points,
+                    "observed": result.observed,
+                    "threshold": result.threshold,
+                    "message": result.message,
+                },
+            )
+
+        return analysis
+
+    def _update_aggregates(
+        self,
+        pix: dict,
+        pix_transaction: PixTransaction,
+        destination_account: Account,
+        device: Device,
+        features: PixFeatures,
+        engine_result: EngineResult,
+    ) -> None:
+        """Atualiza as tabelas agregadas no mesmo commit do Pix.
+
+        Higiene do histórico: toda tentativa registra que o aparelho e o
+        destino foram VISTOS, mas só o Pix APROVADO ensina o perfil. Se a
+        tentativa recusada entrasse na mediana, o fraudador "educaria" a
+        linha de base subindo valores aos poucos.
+        """
+        payer_document = pix["payer_document"]
+        transaction_date = pix["transaction_date"]
+
+        device_owner = self.device_owner_repository.register_attempt(device.id, payer_document, transaction_date)
+        pair = self.payer_payee_pair_repository.register_attempt(
+            payer_document, destination_account.id, transaction_date
+        )
+
+        if engine_result.decision.status != AnalysisStatus.APPROVED:
+            return
+
+        profile = self.payer_profile_repository.get_or_create(payer_document)
+        self.payer_profile_repository.add_approved(profile, pix["amount"], transaction_date)
+        self.payer_payee_pair_repository.add_approved(pair, pix["amount"])
+
+        # O primeiro Pix aprovado é o que cadastra o aparelho.
+        if device_owner.first_approved_pix_id is None:
+            self.device_owner_repository.set_first_approved(device_owner, pix_transaction)
+
+        # Mover o próprio dinheiro de madrugada não diz nada sobre o limite
+        # noturno que o cliente configurou para pagar terceiros.
+        if features.is_night and not features.same_ownership:
+            self.payer_profile_repository.update_max_night_approved_amount(profile, pix["amount"])
+
+        if pix["latitude"] is not None:
+            self.payer_profile_repository.update_last_geolocation(
+                profile, pix["latitude"], pix["longitude"], transaction_date
+            )
 
     def _lock_keys(self, pix: dict) -> list:
         """As chaves da trava, em ordem crescente — sempre a mesma ordem para todos.
