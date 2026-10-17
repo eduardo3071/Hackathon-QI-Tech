@@ -27,6 +27,7 @@ class PayloadGenerator:
         payee_account_number: str = None,
         payee_opening_date: str = OLD_ACCOUNT_OPENING_DATE,
         payee_participant: str = "60701190",
+        payer_opening_date: str = "2025-03-02T10:00:00-03:00",
         device_id: str = None,
         geolocation: dict = None,
         with_geolocation: bool = True,
@@ -75,7 +76,7 @@ class PayloadGenerator:
             "source_account": {
                 "branch": "0001",
                 "account_number": RandomGenerator.account_number_for(payer_document),
-                "opening_date": "2025-03-02T10:00:00-03:00",
+                "opening_date": payer_opening_date,
                 "owner": {"document_number": payer_document},
             },
             "destination_account": {
