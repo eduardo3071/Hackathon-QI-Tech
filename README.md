@@ -14,27 +14,35 @@ com a fonte de cada parâmetro em
 ## Como o motor de decisão funciona
 
 O motor responde duas perguntas antes de decidir: **quem está apertando o
-botão** e **para onde vai o dinheiro**. E decide pelo *tipo* de fraude,
-não só pela intensidade:
+botão** e **para onde vai o dinheiro**. A decisão segue a definição do
+slide da QI Tech: reprovar é "bloquear quando o risco é claro"; 2FA é
+"fricção só onde há dúvida".
 
-- **Conta invadida** (`ato`) → `two_factor_required`: o invasor não tem o
-  segundo fator.
-- **Golpe** (`app`) e **conta laranja** (`mule`) → `rejected`: a vítima
-  manipulada passa no 2FA, então pedir 2FA não protege ninguém (o
-  relatório EBA-ECB 2025 achou fraude *maior* em transferências
-  autenticadas com SCA).
+- **Recusa só com evidência dura**: marcação de fraude, conta sendo
+  esvaziada (velocidade no corte de recusa) ou conta laranja vista por
+  **dois** sinais diferentes. Um sinal de laranja sozinho é dúvida — pode
+  ser o vendedor de carro usado que acabou de abrir conta.
+- **Conta invadida** (`ato`) → `two_factor_required` com **biometria facial
+  com prova de vida** (`face_liveness`): o invasor não tem o rosto do
+  titular, e no SIM swap ele recebe o SMS.
+- **Suspeita de golpe** (`app`, ou um sinal forte de conta laranja) →
+  `two_factor_required` com **confirmação no app e aviso de golpe**
+  (`in_app_confirmation`, `scam_warning: true`). A vítima manipulada passa
+  em qualquer segundo fator (o relatório EBA-ECB 2025 achou fraude *maior*
+  em transferências autenticadas com SCA); a fricção útil é o aviso.
+- **Golpe com sinal fraco** → `approved` com aviso (`recommended_action: warn`).
 
 Cada Pix passa por camadas, e só aprofunda quando a anterior levanta sinal:
 
 | Camada | Quando roda | O que avalia |
 |---|---|---|
-| 0 | sempre | marcação de fraude, limites de norma (aparelho não cadastrado, noturno), velocidade |
+| 0 | sempre | marcação de fraude, limites de norma (aparelho não confiável, noturno), velocidade |
 | 1 | sempre | leituras das tabelas agregadas: perfil do pagador, conta recebedora |
-| gatilho | — | sem sinal de risco e sem contexto de risco (destino novo, aparelho novo, noite) → `approved` pelo **caminho rápido** (`metadata.path = "fast"`) |
-| 2 | só com sinal, tempo limite de 300 ms | regras de rede e ML (Fases 3 e 4). Estourou o tempo → 2FA, nunca aprovar no escuro |
+| gatilho | — | sem sinal de risco e sem contexto de risco (destino novo, aparelho não confiável, noite) → `approved` pelo **caminho rápido** (`metadata.path = "fast"`) |
+| 2 | só com sinal, tempo limite de 300 ms | regras de rede e ML (Fases 3 e 4). Estourou o tempo → 2FA pelo motivo que levou até ela, nunca aprovar no escuro |
 
 Antes de avaliar, o motor toma uma trava (`pg_advisory_xact_lock`) sobre o
-pagador, o recebedor PF e o aparelho, sempre na mesma ordem: dez Pix
+`id` do Pix, o pagador, o recebedor PF e o aparelho, sempre na mesma ordem: dez Pix
 simultâneos do mesmo pagador decidem como se viessem em fila, e nenhuma
 contagem é enganada.
 
@@ -43,8 +51,39 @@ Tudo fica gravado: o Pix como chegou, a decisão, **um resultado por sinal**
 feito **só de Pix aprovados** — tentativa recusada não "educa" a linha de
 base, mas conta na velocidade.
 
-Os parâmetros moram na tabela `rule_parameter` (política versionada
-`2026.10.1`), nunca em constante no código.
+Os parâmetros — inclusive pontos e cortes — moram na tabela
+`rule_parameter` (política versionada `2026.10.1`), nunca em constante no
+código.
+
+### Confiança do aparelho
+
+Um aparelho só é **confiável** para um pagador quando tem **pelo menos 2
+Pix aprovados** desse pagador **e o primeiro deles foi há pelo menos
+24 h**. Enquanto não é, valem os limites do BCB para aparelho não
+cadastrado: R$ 200 por Pix e R$ 1.000 por dia, somando **todos** os Pix
+aprovados de aparelhos não confiáveis do pagador no dia de Brasília.
+Acima disso, 2FA com `face_liveness`. Aparelho não confiável também conta
+como aparelho novo no sinal de perfil (pontua invasão, não golpe).
+
+O motivo é uma brecha concreta: se um Pix aprovado bastasse, o ladrão
+"aqueceria" o celular roubado com um Pix de R$ 10, e o seguinte, de
+R$ 5.000, sairia sem 2FA. Exigir que o primeiro tenha 24 h faz a confiança
+atravessar um dia — o tempo de o titular perceber que perdeu o celular.
+
+### Cliente que o motor ainda não conhece
+
+"Desconhecido" é o pagador sem nenhum Pix gravado no motor. Se a conta
+pagadora (`source_account.opening_date`) tem **pelo menos 180 dias**, o
+aparelho não pede 2FA até o **limite de partida** do perfil (R$ 1.000):
+o sinal sai `not_evaluated`, com a mensagem "o motor ainda não tem
+histórico deste pagador". Acima do limite de partida, 2FA com
+`face_liveness`. Conta pagadora com menos de 180 dias segue a regra
+normal de aparelho não confiável.
+
+Em produção o motor nasceria com a carga do histórico dos clientes; na
+avaliação o banco nasce vazio. Sem esta regra, todo cliente seria tratado
+como fraude no primeiro dia (qualquer Pix acima de R$ 200 viraria 2FA) —
+e com ela o limite continua de pé.
 
 ## Regras
 
@@ -56,16 +95,16 @@ código (R$ 200 = 20000).
 | Regra | Lógica | Parâmetros | Por quê |
 |-------|--------|------------|---------|
 | **1. Marcação** `MARCACAO.lista` | Pagador ou recebedor com marcação vigente em `fraud_marker` (simula o DICT) → `rejected`. Vale mesmo na mesma titularidade. | Marcação própria: sempre (**norma**). De outro PSP: últimos 90 dias (**norma**, janela d90 do DICT) | A Res. BCB 587/2026 obriga a rejeitar todas as transações do usuário marcado, como pagador ou recebedor. |
-| **2. Limite por contexto** `LIMITE.aparelho_nao_cadastrado` | Aparelho sem Pix aprovado deste pagador e (valor > R$ 200 ou soma do dia em aparelhos não cadastrados > R$ 1.000) → `two_factor_required`. O 2FA é o cadastro do aparelho. | R$ 200 por Pix; R$ 1.000 por dia (**norma**) | Res. BCB 403/2024 e nota BCB 20231: limite para aparelho não cadastrado, "mesmo que [o golpista] tenha obtido a senha". |
-| **2. Limite por contexto** `LIMITE.noturno` | Entre 20h e 6h (Brasília), PF→PF entre pessoas distintas: soma da noite > R$ 1.000 **e** acima do maior Pix noturno já aprovado do pagador → 2FA; com placar de golpe ou laranja > 0, recusa. | R$ 1.000; 20h–6h (**norma**) | Res. BCB 142/2021. O motor não recebe o limite que o cliente configurou, então é **sinal, não teto**: quem já teve aprovado um Pix noturno maior mostrou que o limite dele é maior. |
-| **3. Ritmo** `RITMO.velocidade` | Tentativas do pagador em 10 min (janela deslizante, contando recusadas): com a janela somando ≥ R$ 1.000, 5 → 2FA e 10 → `rejected`. Abaixo disso, só 10 tentativas pedem 2FA. | 5 e 10 em 10 min; R$ 1.000 (**estimativa**) | Quem invade tenta esvaziar a conta rápido; janela deslizante é a prática recomendada. A soma separa o ataque do racha da conta do bar (mediana do Pix P2P: R$ 50). |
-| **4. Perfil** `PERFIL.valor` | Valor > P95 **e** > 5× a mediana dos aprovados em 90 dias (mín. 5 Pix); sem histórico, > R$ 1.000. Destino já pago antes → passa (o aluguel). Aparelho novo → +60 `ato`. Aparelho conhecido e destino novo → +40 `app`. | P95, 5×, 5 Pix, 90 dias, R$ 1.000 (**estimativa**) | Res. BCB 403 exige detectar o "não compatível com o perfil", critério que o STJ usou em 2026 (REsp 2.209.868). Fraude média R$ 1.735 vs. mediana P2P R$ 50: por isso mediana e percentil, não média. |
-| **6. Conta recebedora** `CONTA_RECEBEDORA.conta_nova` | Conta destino com < 30 dias: primeiro crédito **e** valor fora do perfil → +60 `mule` (recusa sozinho); só a idade → +20. | 30 dias (**estimativa**) | O art. 39-B da Res. BCB 147 cita o tempo desde a abertura da conta. Sozinha a idade é fraca: muitas laranjas são contas antigas alugadas (RUSI/Lloyds). |
+| **2. Limite por contexto** `LIMITE.aparelho_nao_cadastrado` | Aparelho **não confiável** (veja acima) e (valor > R$ 200 ou soma do dia em aparelhos não confiáveis > R$ 1.000) → `two_factor_required` com `face_liveness`. Cliente desconhecido com conta pagadora de 180 dias ou mais: `not_evaluated` até R$ 1.000, 2FA acima. | R$ 200 por Pix; R$ 1.000 por dia (**norma**). 2 Pix aprovados, o primeiro há 24 h; 180 dias de conta pagadora (**estimativa**) | Res. BCB 403/2024 e nota BCB 20231: limite para aparelho não cadastrado, "mesmo que [o golpista] tenha obtido a senha". |
+| **2. Limite por contexto** `LIMITE.noturno` | Entre 20h e 6h (Brasília), PF→PF entre pessoas distintas: soma da noite > R$ 1.000 **e** acima do maior Pix noturno já aprovado do pagador → 2FA de limite (`in_app_confirmation`). | R$ 1.000; 20h–6h (**norma**) | Res. BCB 142/2021. O motor não recebe o limite que o cliente configurou, então é **sinal, não teto**: quem já teve aprovado um Pix noturno maior mostrou que o limite dele é maior. |
+| **3. Ritmo** `RITMO.velocidade` | Tentativas do pagador em 10 min (janela deslizante, contando recusadas): com a janela somando ≥ R$ 1.000, 5 → 2FA e 10 → `rejected`. Abaixo disso, só 10 tentativas pedem 2FA. O mesmo Pix refeito com `id` novo (mesmo recebedor, mesmo valor) conta **uma** vez. | 5 e 10 em 10 min; R$ 1.000 (**estimativa**) | Quem invade tenta esvaziar a conta rápido; janela deslizante é a prática recomendada. A soma separa o ataque do racha da conta do bar (mediana do Pix P2P: R$ 50), e contar o Pix refeito uma vez só evita empurrar para a recusa quem refaz o Pix depois do 2FA. |
+| **4. Perfil** `PERFIL.valor` | Valor > P95 **e** > 5× a mediana dos aprovados em 90 dias (mín. 5 Pix); sem histórico, > R$ 1.000. Destino já pago antes → passa (o aluguel). Aparelho não confiável → +60 `ato`. Aparelho confiável e destino novo → +40 `app`. | P95, 5×, 5 Pix, 90 dias, R$ 1.000 (**estimativa**) | Res. BCB 403 exige detectar o "não compatível com o perfil", critério que o STJ usou em 2026 (REsp 2.209.868). Fraude média R$ 1.735 vs. mediana P2P R$ 50: por isso mediana e percentil, não média. |
+| **6. Conta recebedora** `CONTA_RECEBEDORA.conta_nova` | Conta destino com < 30 dias: primeiro crédito **e** valor fora do perfil → +60 `mule` (sozinho, 2FA com aviso de golpe; com outro sinal de laranja, recusa); só a idade → +20. | 30 dias (**estimativa**) | O art. 39-B da Res. BCB 147 cita o tempo desde a abertura da conta. Sozinha a idade é fraca: muitas laranjas são contas antigas alugadas (RUSI/Lloyds), e muita conta nova é gente de bem. |
 | **6. Conta recebedora** `CONTA_RECEBEDORA.fan_in` | ≥ 5 pagadores distintos em 1h para um recebedor **PF** → +40 `mule`. Recebedor PJ fica fora. | 5 em 1h (**estimativa**) | Muitas vítimas convergindo para uma pessoa física é o padrão clássico de conta laranja. Lojista recebe de muitos, por isso PJ não pontua. |
 
 **Mesma titularidade** (pagador = recebedor) não é regra, é contexto: tira
 o Pix dos sinais de golpe, de conta laranja e do horário noturno, mas
-**não** da marcação, do aparelho não cadastrado nem da velocidade.
+**não** da marcação, do aparelho não confiável nem da velocidade.
 
 **Ainda não implementado** (Fases 3 e 4 do plano): Regra 5 (aparelho
 compartilhado, viagem impossível, fora da zona habitual), `LIMITE.sem_geolocalizacao`,
@@ -82,26 +121,40 @@ por ML), cadeia de hashes e `latency_ms`.
 3. **Gatilho**: sem sinal e sem contexto de risco → caminho rápido. Senão,
    **camada 2** com tempo limite.
 4. **Placares**: cada sinal que pontua soma no seu placar — `ato`, `app`
-   ou `mule`. Corte de 60 nos três; faixa de aviso de golpe a partir de 30
+   ou `mule`. Corte de 60 nos três; faixa de aviso de golpe a partir de 30;
+   recusa por conta laranja exige 2 sinais de laranja diferentes
    (**estimativas**).
 5. **Decisão**, com precedência `rejected` > `two_factor_required` > `approved`:
 
-| Situação | Status | `recommended_action` | `typology` |
-|---|---|---|---|
-| Marcação de fraude | `rejected` | `block` | `fraud_marker` |
-| Placar `mule` ≥ 60 | `rejected` | `block` | `mule_account` |
-| Placar `app` ≥ 60 | `rejected` | `hold_timer` | `app_scam` |
-| 10 tentativas em 10 min somando ≥ R$ 1.000 | `rejected` | `block` | `account_takeover` |
-| Noturno acima do limite **com** placar `app` ou `mule` > 0 | `rejected` | `block` / `hold_timer` | `mule_account` / `app_scam` |
-| Aparelho não cadastrado acima do limite, velocidade, ou placar `ato` ≥ 60 | `two_factor_required` | `step_up` | `account_takeover` |
-| Noturno acima do limite, sozinho, ou camada 2 estourou o tempo | `two_factor_required` | `step_up` | — |
-| Placar `app` entre 30 e 59 | `approved` | `warn` | `app_scam` |
-| Nada disso | `approved` | `none` | — |
+| Situação | Status | `step_up_reason` | `step_up_method` | `scam_warning` |
+|---|---|---|---|---|
+| Marcação de fraude (`typology: fraud_marker`) | `rejected` | — | — | `false` |
+| Placar `mule` ≥ 60 **com 2 ou mais sinais** de conta laranja (`mule_account`) | `rejected` | — | — | `false` |
+| 10 tentativas em 10 min somando ≥ R$ 1.000 (`account_takeover`) | `rejected` | — | — | `false` |
+| Aparelho não confiável acima do limite, velocidade, ou placar `ato` ≥ 60 | `two_factor_required` | `account_takeover` | `face_liveness` | `true` se também houver suspeita de golpe |
+| Placar `app` ≥ 60, ou placar `mule` ≥ 60 com **um** sinal de laranja | `two_factor_required` | `possible_scam` | `in_app_confirmation` | `true` |
+| Limite noturno, sem outro sinal | `two_factor_required` | `limit` | `in_app_confirmation` | `false` |
+| Placar `app` entre 30 e 59 | `approved` (`recommended_action: warn`) | — | — | `false` |
+| Nada disso | `approved` | — | — | `false` |
 
-`hold_timer` é a recusa por **suspeita** de golpe: em produção, viraria a
-retenção de 30/60 minutos que o BCB prevê, e não uma recusa definitiva.
-`warn` é o aviso antes de concluir (como o Alerta Pix): no golpe com sinal
-fraco, 2FA não ajuda e recusar seria fricção demais.
+`recommended_action` vale `block` na recusa, `step_up` no 2FA, `warn` no
+aviso e `none` no resto. Se a camada 2 estourar o tempo, o 2FA sai pelo
+motivo que levou o Pix até ela.
+
+**Exemplo do slide** (R$ 1.500 às 22h15, primeiro Pix de um cliente que o
+motor não conhece, para uma conta PF aberta há 7 dias):
+
+| Sinal | Resultado | Placar |
+|---|---|---|
+| `LIMITE.aparelho_nao_cadastrado` | cliente desconhecido acima do limite de partida → `two_factor` | — |
+| `LIMITE.noturno` | R$ 1.500 PF→PF à noite → `two_factor` | — |
+| `PERFIL.valor` | sem histórico, acima de R$ 1.000, aparelho não confiável | `ato` +60 |
+| `CONTA_RECEBEDORA.conta_nova` | 7 dias, primeiro crédito, fora do perfil | `mule` +60 |
+
+Placares `ato` 60, `app` 0, `mule` 60. A conta laranja tem um sinal só,
+então não recusa. Há motivo de invasão (aparelho) e de golpe (conta
+laranja): **`two_factor_required`** com `face_liveness` e
+`scam_warning: true`.
 
 O `metadata` de toda resposta traz a versão da política, o caminho
 (`fast`/`deep`), as camadas executadas, os placares, e cada sinal: os que
@@ -161,10 +214,11 @@ curl -s http://localhost:3000/pix/transaction/pix-000123 -H "INTERNAL-TOKEN: def
 | Situação | HTTP |
 |---|---|
 | Pix novo, analisado e gravado (inclusive quando a decisão é `rejected`) | 201 `{key, status, metadata}` |
-| Mesmo `id` com o mesmo conteúdo (retentativa) | 200 com a análise já gravada, sem reavaliar |
+| Mesmo `id` com o mesmo conteúdo (retentativa) — documentos comparados só com dígitos, com ou sem máscara | 200 com a análise já gravada, sem reavaliar |
 | Mesmo `id` com conteúdo diferente | 409 `QIT001002` |
 | JSON fora do schema (campo faltando, tipo errado, campo a mais) | 400 `QIT000001` |
 | CPF ou CNPJ com dígito verificador inválido | 422 `QIT001003` |
+| IP que não é IPv4 nem IPv6 válido | 422 `QIT001006` |
 | Data que não existe no calendário | 422 `QIT001004` |
 | `GET` de um `id` desconhecido | 404 `QIT001001` |
 | Sem `INTERNAL-TOKEN` ou com o token errado | 403 `QIT000002` |
