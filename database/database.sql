@@ -146,8 +146,17 @@ CREATE TABLE analysis(
     policy_version_id               INTEGER NOT NULL REFERENCES policy_version(id),
     typology                        VARCHAR(30),
     recommended_action              VARCHAR(20) NOT NULL CHECK (
-                                        recommended_action IN ('none', 'warn', 'step_up', 'hold_timer', 'block')
+                                        recommended_action IN ('none', 'warn', 'step_up', 'block')
                                     ),
+    -- Só no two_factor_required: POR QUE o 2FA, COMO, e se a tela mostra
+    -- aviso de golpe. Fora dele, os dois primeiros ficam nulos e o aviso falso.
+    step_up_reason                  VARCHAR(20) CHECK (
+                                        step_up_reason IN ('account_takeover', 'possible_scam', 'limit')
+                                    ),
+    step_up_method                  VARCHAR(30) CHECK (
+                                        step_up_method IN ('face_liveness', 'in_app_confirmation')
+                                    ),
+    scam_warning                    BOOLEAN NOT NULL,
     score_ato                       INTEGER NOT NULL,
     score_app                       INTEGER NOT NULL,
     score_mule                      INTEGER NOT NULL,
@@ -248,9 +257,10 @@ CREATE TABLE device_owner(
 -- a origem de cada um está no README e em docs/pesquisa-fraude-pix.md.
 --
 -- Pontos e cortes dos placares (ato/app/mule) são estimativas do grupo:
--- o desenho é que um sinal de conta laranja forte (conta nova recebendo
--- o primeiro crédito fora do perfil, 60) recusa sozinho, e os fracos
--- (fan-in 40, conta nova 20) só recusam combinados.
+-- um sinal de conta laranja forte (conta nova recebendo o primeiro
+-- crédito fora do perfil, 60) chega ao corte e pede 2FA com aviso de
+-- golpe; recusar exige dois sinais de laranja diferentes (conta nova 20 +
+-- fan-in 40, por exemplo).
 -- ─────────────────────────────────────────────────────────────────
 INSERT INTO policy_version (version, ml_mode, is_active) VALUES
 ('2026.10.1', 'shadow', TRUE);
@@ -298,9 +308,11 @@ CROSS JOIN (VALUES
     ('CONTA_RECEBEDORA.fan_in',
      '{"window_minutes": 60, "min_distinct_payers": 5, "points": 40}'),
 
-    -- Estimativa: cortes dos placares e tempo limite da camada 2.
+    -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
+    -- por conta laranja exige o placar no corte E 2 sinais de laranja
+    -- diferentes: um sinal sozinho não é "risco claro".
     ('DECISAO.placares',
-     '{"ato_cut": 60, "app_cut": 60, "mule_cut": 60, "app_warn_cut": 30, "deep_layer_timeout_ms": 300}')
+     '{"ato_cut": 60, "app_cut": 60, "mule_cut": 60, "app_warn_cut": 30, "mule_min_distinct_signals": 2, "deep_layer_timeout_ms": 300}')
 ) AS parameter(signal_code, parameters)
 WHERE policy_version.version = '2026.10.1';
 

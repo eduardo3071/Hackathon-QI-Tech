@@ -1,12 +1,18 @@
 import time
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
-from controllers.decision import Decision, DecisionMaker
+from controllers.decision import (
+    STEP_UP_ACCOUNT_TAKEOVER,
+    STEP_UP_LIMIT,
+    STEP_UP_POSSIBLE_SCAM,
+    Decision,
+    DecisionMaker,
+)
 from controllers.features import PixFeatures
 from controllers.rules import RULES
 from controllers.rules.policy_parameters import PolicyParameters
-from controllers.rules.signal_result import NOT_EVALUATED, SignalResult
+from controllers.rules.signal_result import APP, ATO, MULE, NOT_EVALUATED, SignalResult
 
 FAST = "fast"
 DEEP = "deep"
@@ -49,32 +55,46 @@ class AnalysisEngine:
 
         cuts = params.of(DECISION_PARAMETERS)
 
-        if not self._needs_deep_layer(features, results):
+        deep_layer_reason = self._deep_layer_reason(features, results)
+
+        if deep_layer_reason is None:
             for rule in self.rules:
                 for signal_code in rule.layer_signals(DEEP_LAYER):
                     results.append(
                         rule.not_needed(signal_code, DEEP_LAYER, "Caminho rápido: nenhum sinal de risco nas camadas 0 e 1.")
                     )
 
-            decision = self.decision_maker.decide(results, cuts, deep_layer_timed_out=False)
+            decision = self.decision_maker.decide(results, cuts, deep_layer_timed_out=False, deep_layer_reason=None)
             return EngineResult(results, decision, FAST, list(ALWAYS_LAYERS))
 
         deep_layer_timed_out = self._run_deep_layer(features, params, results, cuts["deep_layer_timeout_ms"])
 
-        decision = self.decision_maker.decide(results, cuts, deep_layer_timed_out)
+        decision = self.decision_maker.decide(results, cuts, deep_layer_timed_out, deep_layer_reason)
         return EngineResult(results, decision, DEEP, list(ALWAYS_LAYERS) + [DEEP_LAYER])
 
-    def _needs_deep_layer(self, features: PixFeatures, results: List[SignalResult]) -> bool:
-        """O gatilho: algum sinal de risco, ou um contexto que o justifique.
+    def _deep_layer_reason(self, features: PixFeatures, results: List[SignalResult]) -> Optional[str]:
+        """O gatilho: POR QUE este Pix precisa da camada 2 — ou None, e ele sai pelo caminho rápido.
 
-        Contexto de risco é o que o plano lista: destino novo, aparelho
-        novo (não confiável) e horário noturno. Valor fora do perfil e conta destino
-        recente já aparecem como sinal nas camadas 0 e 1.
+        Vale um sinal de risco das camadas 0 e 1 ou um contexto de risco do
+        plano: aparelho não confiável, destino novo, horário noturno. Valor
+        fora do perfil e conta destino recente já aparecem como sinal.
+
+        O motivo é o mesmo vocabulário do `step_up_reason`: se a camada 2
+        estourar o tempo, o 2FA sai pelo motivo que levou até ela.
         """
-        if any(result.is_risk() for result in results):
-            return True
+        risk_typologies = {result.typology for result in results if result.is_risk()}
+        has_risk_signal = any(result.is_risk() for result in results)
 
-        return not features.device_trusted or features.pair_approved_count == 0 or bool(features.is_night)
+        if ATO in risk_typologies or not features.device_trusted:
+            return STEP_UP_ACCOUNT_TAKEOVER
+
+        if APP in risk_typologies or MULE in risk_typologies or features.pair_approved_count == 0:
+            return STEP_UP_POSSIBLE_SCAM
+
+        if has_risk_signal or features.is_night:
+            return STEP_UP_LIMIT
+
+        return None
 
     def _run_deep_layer(self, features, params, results, timeout_ms: int) -> bool:
         """Roda a camada 2 dentro do orçamento de tempo. Devolve se estourou.

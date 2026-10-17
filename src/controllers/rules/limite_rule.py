@@ -2,7 +2,7 @@ from controllers.features import PixFeatures
 from controllers.rules.base_rule import BaseRule
 from controllers.rules.policy_parameters import PolicyParameters
 from controllers.rules.perfil_rule import VALUE as PROFILE_VALUE
-from controllers.rules.signal_result import APP, ATO, MULE, NOT_EVALUATED, PASS, TWO_FACTOR, SignalResult
+from controllers.rules.signal_result import ATO, NOT_EVALUATED, PASS, TWO_FACTOR, SignalResult
 from models import Account
 from utils.money import format_brl
 
@@ -146,9 +146,8 @@ class LimiteRule(BaseRule):
 
         O motor não recebe o limite noturno que o cliente configurou no
         app. Quem já teve aprovado um Pix noturno maior que a soma desta
-        noite mostrou que o limite dele é maior, e passa. Fora disso, 2FA;
-        e se houver cara de golpe ou de conta laranja, a decisão recusa
-        (`escalates_with`).
+        noite mostrou que o limite dele é maior, e passa. Fora disso, 2FA
+        de limite: confirmação no app, sem typology de fraude.
         """
         max_night_amount = parameters["max_night_amount"]
         threshold = {
@@ -178,7 +177,6 @@ class LimiteRule(BaseRule):
                 f"{format_brl(max_night_amount)} e do maior Pix noturno já aprovado deste pagador.",
                 observed=observed,
                 threshold=threshold,
-                escalates_with=(APP, MULE),
             )
 
         return self.result(

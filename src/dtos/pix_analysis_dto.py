@@ -40,6 +40,9 @@ class PixAnalysisDTO:
             "layers": list(analysis.layers),
             "typology": analysis.typology,
             "recommended_action": analysis.recommended_action,
+            "step_up_reason": analysis.step_up_reason,
+            "step_up_method": analysis.step_up_method,
+            "scam_warning": analysis.scam_warning,
             "scores": {
                 "ato": analysis.score_ato,
                 "app": analysis.score_app,

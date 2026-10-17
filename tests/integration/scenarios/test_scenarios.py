@@ -1,14 +1,10 @@
 import re
 from uuid import uuid4
 
-import pytest
-
 from tests.utils import PayloadGenerator, RandomGenerator, RequestGenerator, Scenario, shift_date
 
 # Os cenários de ponta a ponta do CLAUDE.md, cada um com o status que a
-# API tem de devolver. São o critério de pronto das revisões de 17/10:
-# um cenário que ainda não passa leva `xfail(strict=True)` com a tarefa
-# que o resolve, e o `strict` obriga a tirar a marca quando ele passar.
+# API tem de devolver. Foram o critério de pronto das revisões de 17/10.
 
 DAY = "2026-10-17T14:00:00-03:00"
 HISTORY_START = "2026-09-20T14:00:00-03:00"
@@ -27,7 +23,6 @@ def client_with_history() -> dict:
 
 
 class TestEndToEndScenarios:
-    @pytest.mark.xfail(strict=True, reason="tarefa 6: decisão revisada")
     def test_slide_example(self):
         """R$ 1.500 às 22h15, destino aberto há 7 dias, pagador sem histórico no motor.
 
@@ -55,7 +50,6 @@ class TestEndToEndScenarios:
 
         assert response["status"] == "two_factor_required"
 
-    @pytest.mark.xfail(strict=True, reason="tarefa 6: step_up_method no metadata")
     def test_stolen_phone(self):
         """Aparelho novo faz um Pix de R$ 10 (aprovado) e, 3 minutos depois, R$ 5.000."""
         client = client_with_history()
@@ -76,7 +70,6 @@ class TestEndToEndScenarios:
         assert response["status"] == "two_factor_required"
         assert response["metadata"]["step_up_method"] == "face_liveness"
 
-    @pytest.mark.xfail(strict=True, reason="tarefa 6: decisão revisada")
     def test_used_car(self):
         """R$ 35.000 de dia para um vendedor com conta de 20 dias (primeiro crédito): 2FA com aviso."""
         client = client_with_history()

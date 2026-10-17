@@ -18,21 +18,24 @@ class TestRuleContaRecebedoraContaNova:
     """Regra 6 — CONTA_RECEBEDORA.conta_nova: quem recebe é confiável?
 
     Conta destino com menos de 30 dias, recebendo o primeiro crédito, num
-    valor fora do perfil do pagador: é a conta laranja recém-aberta, e
-    recusa sozinha. Só a idade, sem o resto, pontua pouco: muita laranja
-    é conta antiga alugada, e muita conta nova é gente de bem.
+    valor fora do perfil do pagador: é a cara da conta laranja
+    recém-aberta — mas também do vendedor de carro usado que acabou de
+    abrir conta. Sozinha, pede 2FA com aviso de golpe; recusa só junto de
+    outro sinal de conta laranja. Só a idade, sem o resto, pontua pouco.
     """
 
-    def test_new_account_first_credit_out_of_profile_is_rejected(self):
+    def test_new_account_first_credit_out_of_profile_requires_two_factor_with_scam_warning(self):
         context = payer_with_known_device()
 
         response = Scenario.send(
             **context, amount=150000, payee_opening_date=SEVEN_DAYS_BEFORE, transaction_date=DAY
         )
 
-        assert response["status"] == "rejected"
+        assert response["status"] == "two_factor_required"
         assert response["metadata"]["typology"] == "mule_account"
-        assert response["metadata"]["recommended_action"] == "block"
+        assert response["metadata"]["step_up_reason"] == "possible_scam"
+        assert response["metadata"]["step_up_method"] == "in_app_confirmation"
+        assert response["metadata"]["scam_warning"] is True
         reason = reason_for(response, "CONTA_RECEBEDORA.conta_nova")
         assert reason["typology"] == "mule"
         assert reason["observed"]["account_age_days"] == 7
