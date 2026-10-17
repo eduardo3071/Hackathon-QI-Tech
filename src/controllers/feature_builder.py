@@ -111,6 +111,9 @@ class FeatureBuilder:
             payee_new_account_institutions=self._payee_new_account_institutions(
                 pix, params.of("CONTA_RECEBEDORA.varias_instituicoes")
             ),
+            payer_distinct_payees_24h=self.pix_feature_repository.count_distinct_payees(
+                payer_document, transaction_date - timedelta(hours=24), transaction_date
+            ),
             payer_recent_third_party_credits=self._recent_third_party_credits(
                 pix, params.of("RASTRO.repasse_rapido")
             ),

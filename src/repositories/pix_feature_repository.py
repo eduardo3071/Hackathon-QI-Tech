@@ -291,3 +291,15 @@ class PixFeatureRepository:
             )
             .scalar()
         )
+
+    def count_distinct_payees(self, payer_document: str, start: datetime, end: datetime) -> int:
+        """Para quantos recebedores distintos o pagador mandou Pix na janela `[início, fim)`, com qualquer status."""
+        return (
+            self.session.query(func.count(func.distinct(PixTransaction.payee_document_number)))
+            .filter(
+                PixTransaction.payer_document_number == payer_document,
+                PixTransaction.transaction_date >= start,
+                PixTransaction.transaction_date < end,
+            )
+            .scalar()
+        )

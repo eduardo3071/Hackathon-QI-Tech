@@ -76,6 +76,10 @@ class PixFeatures:
     payee_days_without_movement: Optional[int]
     payee_new_account_institutions: Optional[int]
 
+    # Regra 8 — anomalia: para quantos destinos distintos o pagador mandou
+    # nas 24 h anteriores (o "muitos destinos" que nenhuma regra conta).
+    payer_distinct_payees_24h: int
+
     # Regra 7 — rastro do dinheiro
     payer_recent_third_party_credits: Optional[int]
     # Saltos até o documento com marcação mais próximo que mandou dinheiro
