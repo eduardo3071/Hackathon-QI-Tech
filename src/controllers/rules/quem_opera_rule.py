@@ -1,10 +1,13 @@
 from controllers.features import PixFeatures
 from controllers.rules.base_rule import BaseRule
+from controllers.rules.perfil_rule import VALUE as PROFILE_VALUE
 from controllers.rules.policy_parameters import PolicyParameters
 from controllers.rules.signal_result import ATO, MULE, NOT_EVALUATED, PASS, WARN, SignalResult
+from utils.money import format_brl
 
 SHARED_DEVICE = "QUEM_OPERA.aparelho_compartilhado"
 IMPOSSIBLE_TRAVEL = "QUEM_OPERA.viagem_impossivel"
+UNUSUAL_CHANNEL = "QUEM_OPERA.canal_incomum"
 
 
 class QuemOperaRule(BaseRule):
@@ -21,6 +24,7 @@ class QuemOperaRule(BaseRule):
         super().__init__()
         self.signals = {
             IMPOSSIBLE_TRAVEL: (1, self._evaluate_impossible_travel),
+            UNUSUAL_CHANNEL: (1, self._evaluate_unusual_channel),
             SHARED_DEVICE: (2, self._evaluate_shared_device),
         }
 
@@ -130,6 +134,57 @@ class QuemOperaRule(BaseRule):
             1,
             PASS,
             f"{distance_km:.0f} km desde o último Pix aprovado, a {speed_kmh:.0f} km/h: viagem possível.",
+            observed=observed,
+            threshold=threshold,
+        )
+
+    def _evaluate_unusual_channel(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> SignalResult:
+        """Canal que o pagador nunca usou num Pix aprovado, com valor acima do limite de partida.
+
+        Pontua `ato` abaixo do corte: reforça outro sinal de invasão, não
+        decide sozinho — trocar do app para o internet banking é comum. O
+        limite de partida vem do PERFIL.valor; sem ele, não há com que
+        comparar. Cliente que o motor ainda não conhece não tem canal de
+        costume: `not_evaluated`.
+        """
+        observed = {"channel": features.channel, "amount": features.amount}
+
+        if not features.payer_known:
+            return self.result(
+                UNUSUAL_CHANNEL,
+                1,
+                NOT_EVALUATED,
+                "O motor ainda não tem histórico deste pagador: não há canal de costume.",
+                observed=observed,
+            )
+
+        if not params.is_enabled(PROFILE_VALUE):
+            return self.result(
+                UNUSUAL_CHANNEL, 1, NOT_EVALUATED, "PERFIL.valor desligado: sem limite de partida.", observed=observed
+            )
+
+        fallback_amount = params.of(PROFILE_VALUE)["fallback_amount"]
+        threshold = {"fallback_amount": fallback_amount}
+        observed["channel_used_before"] = features.channel_used_before
+
+        if not features.channel_used_before and features.amount > fallback_amount:
+            return self.result(
+                UNUSUAL_CHANNEL,
+                1,
+                WARN,
+                f"O pagador nunca teve um Pix aprovado pelo canal \"{features.channel}\", e este é de {format_brl(features.amount)}, "
+                f"acima do limite de partida de {format_brl(fallback_amount)}: canal fora do costume.",
+                typology=ATO,
+                points=parameters["points"],
+                observed=observed,
+                threshold=threshold,
+            )
+
+        return self.result(
+            UNUSUAL_CHANNEL,
+            1,
+            PASS,
+            "Canal de costume do pagador, ou valor dentro do limite de partida.",
             observed=observed,
             threshold=threshold,
         )

@@ -177,3 +177,17 @@ class PixFeatureRepository:
             .all()
         )
         return [row.payer_document_number for row in rows]
+
+    def payer_used_channel(self, payer_document: str, channel: str, status_enumerator: str) -> bool:
+        """Se o pagador já tem Pix com o status pedido saído deste canal."""
+        return self.session.query(
+            self.session.query(PixTransaction.id)
+            .join(Analysis, Analysis.pix_transaction_id == PixTransaction.id)
+            .join(AnalysisStatus, AnalysisStatus.id == Analysis.status_id)
+            .filter(
+                PixTransaction.payer_document_number == payer_document,
+                PixTransaction.channel == channel,
+                AnalysisStatus.enumerator == status_enumerator,
+            )
+            .exists()
+        ).scalar()

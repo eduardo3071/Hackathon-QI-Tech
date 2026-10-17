@@ -29,6 +29,7 @@ class PayloadGenerator:
         payee_participant: str = "60701190",
         payer_opening_date: str = "2025-03-02T10:00:00-03:00",
         device_id: str = None,
+        channel: str = "app",
         geolocation: dict = None,
         with_geolocation: bool = True,
     ) -> dict:
@@ -63,7 +64,7 @@ class PayloadGenerator:
 
         source = {
             "device_id": device_id,
-            "channel": "app",
+            "channel": channel,
             "ip": "198.51.100.23",
         }
         if with_geolocation:

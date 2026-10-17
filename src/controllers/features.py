@@ -50,6 +50,8 @@ class PixFeatures:
     # Regra 5 — quem está operando
     device_distinct_payers: Optional[int]
     has_geolocation: bool
+    channel: str
+    channel_used_before: Optional[bool]
     # Até o último Pix APROVADO com geolocalização; None sem esse histórico.
     # As horas podem ser zero ou negativas (Pix que chegou fora de ordem).
     last_location_distance_km: Optional[float]

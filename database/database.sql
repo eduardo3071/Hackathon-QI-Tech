@@ -378,6 +378,12 @@ CROSS JOIN (VALUES
     ('LIMITE.sem_geolocalizacao',
      '{"max_amount_without_geolocation": 50000}'),
 
+    -- Estimativa: canal que o pagador nunca usou num Pix aprovado, acima
+    -- do limite de partida do PERFIL.valor (R$ 1.000), pontua invasão
+    -- abaixo do corte (30): reforça outro sinal, não decide sozinho.
+    ('QUEM_OPERA.canal_incomum',
+     '{"points": 30}'),
+
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
     -- diferentes: um sinal sozinho não é "risco claro".

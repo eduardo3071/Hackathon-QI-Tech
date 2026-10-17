@@ -147,3 +147,43 @@ class TestRuleQuemOperaViagemImpossivel:
         response = Scenario.send(**context, geolocation=FORTALEZA, transaction_date=shift_date(DAY, minutes=-30))
 
         assert "QUEM_OPERA.viagem_impossivel" in not_evaluated_signals(response)
+
+
+class TestRuleQuemOperaCanalIncomum:
+    """Regra 5 — QUEM_OPERA.canal_incomum: o pagador costuma usar este canal?
+
+    Canal que o pagador nunca usou num Pix aprovado, com valor acima do
+    limite de partida (R$ 1.000): quem sempre paga pelo app e de repente
+    manda R$ 1.500 por outro canal pode não ser o titular. Pontua `ato`
+    sem chegar ao corte: reforça outro sinal de invasão, não decide só.
+    """
+
+    def test_new_channel_above_the_starting_limit_scores_takeover(self):
+        context = payer_last_seen_in_sao_paulo(hours_before=1)
+
+        response = Scenario.send(**context, channel="internet_banking", amount=150000, transaction_date=DAY)
+
+        reason = reason_for(response, "QUEM_OPERA.canal_incomum")
+        assert reason["typology"] == "ato"
+        assert reason["points"] > 0
+        assert reason["observed"]["channel"] == "internet_banking"
+
+    def test_new_channel_at_the_starting_limit_passes(self):
+        context = payer_last_seen_in_sao_paulo(hours_before=1)
+
+        response = Scenario.send(**context, channel="internet_banking", amount=100000, transaction_date=DAY)
+
+        assert reason_for(response, "QUEM_OPERA.canal_incomum") is None
+        assert "QUEM_OPERA.canal_incomum" in response["metadata"]["passed"]
+
+    def test_usual_channel_passes(self):
+        context = payer_last_seen_in_sao_paulo(hours_before=1)
+
+        response = Scenario.send(**context, channel="app", amount=150000, transaction_date=DAY)
+
+        assert reason_for(response, "QUEM_OPERA.canal_incomum") is None
+
+    def test_client_unknown_to_the_engine_is_not_evaluated(self):
+        response = Scenario.send(channel="internet_banking", amount=90000, transaction_date=DAY)
+
+        assert "QUEM_OPERA.canal_incomum" in not_evaluated_signals(response)

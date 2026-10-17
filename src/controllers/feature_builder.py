@@ -88,6 +88,8 @@ class FeatureBuilder:
                 pix, device, params.of("QUEM_OPERA.aparelho_compartilhado")
             ),
             has_geolocation=pix["latitude"] is not None,
+            channel=pix["channel"],
+            channel_used_before=self._channel_used_before(pix, params.of("QUEM_OPERA.canal_incomum")),
             last_location_distance_km=last_location["distance_km"],
             last_location_hours=last_location["hours"],
             payee_account_age_days=max(0, (transaction_date - destination_account.opening_date).days),
@@ -258,3 +260,12 @@ class FeatureBuilder:
         hours = (pix["transaction_date"] - profile.last_geolocation_at).total_seconds() / 3600
 
         return {"distance_km": round(distance_km, 3), "hours": hours}
+
+    def _channel_used_before(self, pix: dict, parameters):
+        """Se o pagador já teve um Pix aprovado por este canal."""
+        if parameters is None:
+            return None
+
+        return self.pix_feature_repository.payer_used_channel(
+            pix["payer_document"], pix["channel"], AnalysisStatus.APPROVED
+        )

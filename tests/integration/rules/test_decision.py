@@ -148,6 +148,7 @@ class TestDecisionLayers:
             "QUEM_OPERA.aparelho_compartilhado",
             "QUEM_OPERA.viagem_impossivel",
             "LIMITE.sem_geolocalizacao",
+            "QUEM_OPERA.canal_incomum",
         }
 
     def test_rejected_pix_is_recorded_and_consultable(self):
