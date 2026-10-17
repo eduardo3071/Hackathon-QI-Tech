@@ -4,7 +4,7 @@ from typing import List, Tuple
 from sqlalchemy import func
 
 from database import Context
-from models import Account, Analysis, AnalysisStatus, DeviceOwner, PixTransaction
+from models import Account, Analysis, AnalysisStatus, PixTransaction
 
 
 class PixFeatureRepository:
@@ -65,20 +65,23 @@ class PixFeatureRepository:
         )
         return int(amount)
 
-    def sum_first_approved_per_device(self, payer_document: str, start: datetime, end: datetime) -> int:
-        """Soma do PRIMEIRO Pix aprovado de cada aparelho do pagador, na janela.
+    def sum_by_device_trust(
+        self, payer_document: str, start: datetime, end: datetime, device_trusted: bool, status_enumerator: str
+    ) -> int:
+        """Soma dos Pix do pagador, com o status pedido, que saíram de aparelho confiável (ou não).
 
-        O primeiro Pix aprovado de um aparelho é o que saiu enquanto ele
-        ainda não era cadastrado (veja o comentário de `device_owner` no
-        database.sql).
+        A confiança é a do momento de cada Pix, gravada em `analysis.device_trusted`.
         """
         amount = (
             self.session.query(func.coalesce(func.sum(PixTransaction.amount), 0))
-            .join(DeviceOwner, DeviceOwner.first_approved_pix_id == PixTransaction.id)
+            .join(Analysis, Analysis.pix_transaction_id == PixTransaction.id)
+            .join(AnalysisStatus, AnalysisStatus.id == Analysis.status_id)
             .filter(
-                DeviceOwner.document_number == payer_document,
+                PixTransaction.payer_document_number == payer_document,
                 PixTransaction.transaction_date >= start,
                 PixTransaction.transaction_date <= end,
+                Analysis.device_trusted.is_(device_trusted),
+                AnalysisStatus.enumerator == status_enumerator,
             )
             .scalar()
         )

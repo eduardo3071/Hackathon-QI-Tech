@@ -65,6 +65,73 @@ class TestRuleLimiteAparelhoNaoCadastrado:
         assert reason["observed"]["day_amount"] == 100001
 
 
+class TestRuleLimiteConfiancaDoAparelho:
+    """Aparelho confiável: 2 ou mais Pix aprovados do pagador, o primeiro há pelo menos 24 h.
+
+    Fecha a brecha do Pix pequeno: sem isso, um Pix de R$ 10 aprovado
+    tornava o aparelho do ladrão "conhecido", e o Pix seguinte, de
+    R$ 5.000, não pedia 2FA nenhum.
+    """
+
+    def _two_pix(self, payer: str, device: str, first_date: str, second_date: str) -> None:
+        for transaction_date in (first_date, second_date):
+            response = Scenario.send(payer_document=payer, device_id=device, amount=1000, transaction_date=transaction_date)
+            assert response["status"] == "approved", response
+
+    def test_one_small_pix_does_not_make_the_device_trusted(self):
+        payer = RandomGenerator.generate_cpf()
+        device = new_device()
+        Scenario.send(payer_document=payer, device_id=device, amount=1000, transaction_date=DAY)
+
+        response = Scenario.send(
+            payer_document=payer, device_id=device, amount=30000, transaction_date=shift_date(DAY, minutes=3)
+        )
+
+        assert response["status"] == "two_factor_required"
+        assert reason_for(response, "LIMITE.aparelho_nao_cadastrado")["outcome"] == "two_factor"
+
+    def test_first_approved_pix_less_than_24h_ago_is_not_enough(self):
+        payer = RandomGenerator.generate_cpf()
+        device = new_device()
+        self._two_pix(payer, device, shift_date(DAY, hours=-23, minutes=-59), shift_date(DAY, hours=-1))
+
+        response = Scenario.send(payer_document=payer, device_id=device, amount=30000, transaction_date=DAY)
+
+        assert response["status"] == "two_factor_required"
+
+    def test_two_approved_pix_with_the_first_24h_ago_make_it_trusted(self):
+        payer = RandomGenerator.generate_cpf()
+        device = new_device()
+        self._two_pix(payer, device, shift_date(DAY, hours=-24), shift_date(DAY, hours=-1))
+
+        response = Scenario.send(payer_document=payer, device_id=device, amount=30000, transaction_date=DAY)
+
+        assert response["status"] == "approved"
+        assert reason_for(response, "LIMITE.aparelho_nao_cadastrado") is None
+
+    def test_daily_limit_adds_every_pix_from_an_untrusted_device(self):
+        """Cinco Pix de R$ 180 do mesmo aparelho novo somam R$ 900; o sexto passa de R$ 1.000.
+
+        Cada um respeita os R$ 200 por Pix, e o aparelho não vira confiável
+        no meio do dia: todos contam no teto diário.
+        """
+        payer = RandomGenerator.generate_cpf()
+        device = new_device()
+
+        for index in range(5):
+            response = Scenario.send(
+                payer_document=payer, device_id=device, amount=18000, transaction_date=shift_date(DAY, minutes=15 * index)
+            )
+            assert response["status"] == "approved", f"o Pix {index + 1} já pediu 2FA"
+
+        response = Scenario.send(
+            payer_document=payer, device_id=device, amount=18000, transaction_date=shift_date(DAY, minutes=75)
+        )
+
+        assert response["status"] == "two_factor_required"
+        assert reason_for(response, "LIMITE.aparelho_nao_cadastrado")["observed"]["day_amount"] == 108000
+
+
 class TestRuleLimiteNoturno:
     """Regra 2 — LIMITE.noturno.
 
@@ -75,7 +142,7 @@ class TestRuleLimiteNoturno:
     """
 
     def _payer_with_known_device_and_recurrent_payee(self) -> dict:
-        """Pagador com aparelho conhecido que já pagou este destino de dia.
+        """Pagador com aparelho confiável que já pagou este destino de dia.
 
         O destino recorrente isola o sinal noturno: sem ele, um valor
         acima de R$ 1.000 também dispararia o sinal de perfil.
@@ -86,6 +153,7 @@ class TestRuleLimiteNoturno:
             "payee_document": RandomGenerator.generate_cpf(),
             "payee_account_number": RandomGenerator.generate_account_number(),
         }
+        Scenario.register_device(context["payer_document"], context["device_id"], shift_date(DAY, days=-2))
         Scenario.send(**context, amount=10000, transaction_date=shift_date(DAY, days=-1))
 
         return context

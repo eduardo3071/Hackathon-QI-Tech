@@ -56,7 +56,7 @@ class TestEndToEndScenarios:
 
         assert response["status"] == "two_factor_required"
 
-    @pytest.mark.xfail(strict=True, reason="tarefas 4 e 6: confiança do aparelho e step_up_method")
+    @pytest.mark.xfail(strict=True, reason="tarefa 6: step_up_method no metadata")
     def test_stolen_phone(self):
         """Aparelho novo faz um Pix de R$ 10 (aprovado) e, 3 minutos depois, R$ 5.000."""
         client = client_with_history()

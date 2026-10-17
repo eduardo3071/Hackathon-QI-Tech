@@ -35,21 +35,27 @@ class LimiteRule(BaseRule):
     ) -> SignalResult:
         """R$ 200 por Pix e R$ 1.000 por dia em aparelho não cadastrado (BCB, nov/2024).
 
-        O 2FA pedido aqui é o cadastro do aparelho que a norma prevê:
-        depois do primeiro Pix aprovado, o aparelho vira conhecido. Vale
+        "Cadastrado", aqui, é o aparelho CONFIÁVEL: 2 Pix aprovados, o
+        primeiro há 24 h ou mais (veja o FeatureBuilder). O teto diário
+        soma todos os Pix aprovados hoje de aparelhos não confiáveis. Vale
         também na mesma titularidade — o celular roubado transfere para
         onde o ladrão quiser, inclusive para outra conta da vítima.
         """
         max_per_pix = parameters["max_amount_per_pix"]
         max_per_day = parameters["max_amount_per_day"]
-        threshold = {"max_amount_per_pix": max_per_pix, "max_amount_per_day": max_per_day}
+        threshold = {
+            "max_amount_per_pix": max_per_pix,
+            "max_amount_per_day": max_per_day,
+            "trusted_min_approved_pix": parameters["trusted_min_approved_pix"],
+            "trusted_min_hours": parameters["trusted_min_hours"],
+        }
 
-        if features.device_known:
+        if features.device_trusted:
             return self.result(
-                UNREGISTERED_DEVICE, 0, PASS, "Aparelho já cadastrado para este pagador.", threshold=threshold
+                UNREGISTERED_DEVICE, 0, PASS, "Aparelho confiável para este pagador.", threshold=threshold
             )
 
-        day_amount = features.unregistered_devices_day_amount + features.amount
+        day_amount = features.untrusted_devices_day_amount + features.amount
         observed = {"amount": features.amount, "day_amount": day_amount}
 
         if features.amount > max_per_pix:
@@ -57,7 +63,7 @@ class LimiteRule(BaseRule):
                 UNREGISTERED_DEVICE,
                 0,
                 TWO_FACTOR,
-                f"Aparelho sem Pix aprovado deste pagador e valor de {format_brl(features.amount)}, "
+                f"Aparelho ainda não confiável para este pagador e valor de {format_brl(features.amount)}, "
                 f"acima dos {format_brl(max_per_pix)} por Pix permitidos sem cadastro.",
                 typology=ATO,
                 observed=observed,
@@ -69,7 +75,7 @@ class LimiteRule(BaseRule):
                 UNREGISTERED_DEVICE,
                 0,
                 TWO_FACTOR,
-                f"Aparelhos não cadastrados somam {format_brl(day_amount)} hoje, "
+                f"Aparelhos não confiáveis somam {format_brl(day_amount)} hoje, "
                 f"acima dos {format_brl(max_per_day)} por dia permitidos sem cadastro.",
                 typology=ATO,
                 observed=observed,
@@ -80,7 +86,7 @@ class LimiteRule(BaseRule):
             UNREGISTERED_DEVICE,
             0,
             PASS,
-            "Aparelho não cadastrado, mas dentro dos limites por Pix e por dia.",
+            "Aparelho ainda não confiável, mas dentro dos limites por Pix e por dia.",
             observed=observed,
             threshold=threshold,
         )

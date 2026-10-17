@@ -1,4 +1,4 @@
-from sqlalchemy import CHAR, Column, DateTime, ForeignKey, Integer, SmallInteger, String, UniqueConstraint, func
+from sqlalchemy import Boolean, CHAR, Column, DateTime, ForeignKey, Integer, SmallInteger, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import relationship
 from models.base import Base
@@ -26,6 +26,7 @@ class Analysis(Base):
     score_app = Column(Integer, nullable=False)
     score_mule = Column(Integer, nullable=False)
     path = Column(String(10), nullable=False)
+    device_trusted = Column(Boolean, nullable=False)
     layers = Column(ARRAY(SmallInteger), nullable=False)
     features = Column(JSONB, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

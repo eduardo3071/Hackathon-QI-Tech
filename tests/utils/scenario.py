@@ -24,14 +24,19 @@ class Scenario:
 
     @staticmethod
     def register_device(payer_document: str, device_id: str, transaction_date: str) -> None:
-        """Um Pix pequeno e aprovado: daqui em diante o aparelho é conhecido deste pagador."""
-        response = Scenario.send(
-            payer_document=payer_document,
-            device_id=device_id,
-            transaction_date=transaction_date,
-            amount=10000,
-        )
-        assert response["status"] == "approved", response
+        """Dois Pix pequenos e aprovados, 24 h antes e em `transaction_date`.
+
+        Daqui em diante o aparelho é CONFIÁVEL para este pagador: 2 Pix
+        aprovados, o primeiro há pelo menos 24 h.
+        """
+        for date in (shift_date(transaction_date, days=-1), transaction_date):
+            response = Scenario.send(
+                payer_document=payer_document,
+                device_id=device_id,
+                transaction_date=date,
+                amount=10000,
+            )
+            assert response["status"] == "approved", response
 
     @staticmethod
     def build_history(

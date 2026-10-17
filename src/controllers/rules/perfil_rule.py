@@ -27,7 +27,8 @@ class PerfilRule(BaseRule):
 
     O mesmo valor fora do perfil muda de sentido com o contexto:
       • destino já pago antes → a conta do mês (aluguel): atenua, passa;
-      • aparelho novo → quem opera pode não ser o dono: pontua invasão;
+      • aparelho novo ou ainda não confiável → quem opera pode não ser o
+        dono: pontua invasão;
       • aparelho conhecido, destino novo → a vítima autenticada mandando
         para o golpista: pontua golpe.
     """
@@ -100,12 +101,12 @@ class PerfilRule(BaseRule):
                 threshold=threshold,
             )
 
-        if not features.device_known:
+        if not features.device_trusted:
             return self.result(
                 VALUE,
                 1,
                 WARN,
-                f"{format_brl(features.amount)} fora do perfil, de um aparelho novo: quem opera pode não ser o titular.",
+                f"{format_brl(features.amount)} fora do perfil, de um aparelho ainda não confiável: quem opera pode não ser o titular.",
                 typology=ATO,
                 points=parameters["ato_points"],
                 observed=observed,

@@ -62,8 +62,10 @@ class FeatureBuilder:
             payee_type=pix["payee_type"],
             payer_markers=self._markers(payer_document, transaction_date),
             payee_markers=self._markers(payee_document, transaction_date),
-            device_known=device_owner is not None and device_owner.first_approved_pix_id is not None,
-            unregistered_devices_day_amount=self._unregistered_devices_day_amount(
+            device_trusted=self._device_trusted(
+                device_owner, transaction_date, params.of("LIMITE.aparelho_nao_cadastrado")
+            ),
+            untrusted_devices_day_amount=self._untrusted_devices_day_amount(
                 payer_document, transaction_date, local_date, params.of("LIMITE.aparelho_nao_cadastrado")
             ),
             is_night=night["is_night"],
@@ -93,14 +95,31 @@ class FeatureBuilder:
 
         return markers
 
-    def _unregistered_devices_day_amount(self, payer_document, transaction_date, local_date, parameters):
-        """Quanto este pagador já mandou HOJE (dia de Brasília) de aparelhos não cadastrados."""
+    def _device_trusted(self, device_owner, transaction_date: datetime, parameters) -> bool:
+        """Confiável = N Pix aprovados deste pagador neste aparelho, o primeiro há pelo menos X horas.
+
+        Um Pix aprovado só não basta: senão o ladrão "aquece" o aparelho com
+        um Pix de R$ 10, e o seguinte, de R$ 5.000, não pede 2FA. Exigir que
+        o primeiro tenha mais de 24 h faz a confiança atravessar um dia — o
+        tempo de o titular perceber que perdeu o celular.
+        """
+        if parameters is None or device_owner is None or device_owner.first_approved_at is None:
+            return False
+
+        trusted_since = device_owner.first_approved_at + timedelta(hours=parameters["trusted_min_hours"])
+
+        return device_owner.approved_count >= parameters["trusted_min_approved_pix"] and trusted_since <= transaction_date
+
+    def _untrusted_devices_day_amount(self, payer_document, transaction_date, local_date, parameters):
+        """Quanto este pagador já mandou HOJE (dia de Brasília), aprovado, de aparelhos não confiáveis."""
         if parameters is None:
             return None
 
         day_start = local_date.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        return self.pix_feature_repository.sum_first_approved_per_device(payer_document, day_start, transaction_date)
+        return self.pix_feature_repository.sum_by_device_trust(
+            payer_document, day_start, transaction_date, False, AnalysisStatus.APPROVED
+        )
 
     def _night(self, pix: dict, local_date: datetime, parameters) -> dict:
         """Se o Pix é noturno e quanto o pagador já mandou PF→PF nesta noite.

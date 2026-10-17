@@ -152,6 +152,10 @@ CREATE TABLE analysis(
     score_app                       INTEGER NOT NULL,
     score_mule                      INTEGER NOT NULL,
     path                            VARCHAR(10) NOT NULL CHECK (path IN ('fast', 'deep')),
+    -- Se o aparelho era confiável NO MOMENTO deste Pix. Fica gravado porque
+    -- a confiança muda com o tempo, e o teto diário de R$ 1.000 soma os Pix
+    -- que saíram de aparelho não confiável — no momento em que saíram.
+    device_trusted                  BOOLEAN NOT NULL,
     layers                          SMALLINT[] NOT NULL,
     features                        JSONB NOT NULL,
     created_at                      TIMESTAMPTZ NOT NULL DEFAULT(NOW()),
@@ -218,19 +222,19 @@ CREATE TABLE payer_payee_pair(
     UNIQUE(payer_document_number, destination_account_id)
 );
 
--- Aparelho × documento: "este aparelho já fez Pix aprovado para esta pessoa?"
+-- Aparelho × documento: "este aparelho é confiável para esta pessoa?"
 --
--- Aparelho "cadastrado" = já tem Pix aprovado deste pagador. O primeiro
--- Pix aprovado de cada aparelho é, por definição, o único que saiu
--- enquanto ele NÃO era cadastrado — e é ele que conta no teto diário de
--- R$ 1.000 do BCB para aparelho não cadastrado. Por isso a coluna aponta
--- para o Pix, e não só guarda a data.
+-- Confiável = pelo menos 2 Pix aprovados deste pagador, o primeiro há pelo
+-- menos 24 h (parâmetros em LIMITE.aparelho_nao_cadastrado). Um Pix de R$ 10
+-- aprovado não basta: senão, o ladrão "aquece" o aparelho com um Pix
+-- pequeno e o seguinte, grande, sai sem 2FA.
 CREATE TABLE device_owner(
     id                              SERIAL PRIMARY KEY,
     device_id                       INTEGER NOT NULL REFERENCES device(id),
     document_number                 VARCHAR(14) NOT NULL,
     first_seen_at                   TIMESTAMPTZ NOT NULL,
-    first_approved_pix_id           INTEGER REFERENCES pix_transaction(id),
+    first_approved_at               TIMESTAMPTZ,
+    approved_count                  INTEGER NOT NULL,
     created_at                      TIMESTAMPTZ NOT NULL DEFAULT(NOW()),
     UNIQUE(device_id, document_number)
 );
@@ -261,9 +265,10 @@ CROSS JOIN (VALUES
      '{"third_party_window_days": 90}'),
 
     -- Res. BCB 403/2024 e nota BCB 20231 (norma): R$ 200 por Pix e
-    -- R$ 1.000 por dia em aparelho não cadastrado.
+    -- R$ 1.000 por dia em aparelho não cadastrado. Estimativa: o aparelho
+    -- só vira confiável com 2 Pix aprovados, o primeiro há 24 h ou mais.
     ('LIMITE.aparelho_nao_cadastrado',
-     '{"max_amount_per_pix": 20000, "max_amount_per_day": 100000}'),
+     '{"max_amount_per_pix": 20000, "max_amount_per_day": 100000, "trusted_min_approved_pix": 2, "trusted_min_hours": 24}'),
 
     -- Res. BCB 142/2021 (norma): R$ 1.000 entre 20h e 6h, PF para PF.
     ('LIMITE.noturno',

@@ -68,13 +68,13 @@ class AnalysisEngine:
         """O gatilho: algum sinal de risco, ou um contexto que o justifique.
 
         Contexto de risco é o que o plano lista: destino novo, aparelho
-        novo e horário noturno. Valor fora do perfil e conta destino
+        novo (não confiável) e horário noturno. Valor fora do perfil e conta destino
         recente já aparecem como sinal nas camadas 0 e 1.
         """
         if any(result.is_risk() for result in results):
             return True
 
-        return not features.device_known or features.pair_approved_count == 0 or bool(features.is_night)
+        return not features.device_trusted or features.pair_approved_count == 0 or bool(features.is_night)
 
     def _run_deep_layer(self, features, params, results, timeout_ms: int) -> bool:
         """Roda a camada 2 dentro do orçamento de tempo. Devolve se estourou.

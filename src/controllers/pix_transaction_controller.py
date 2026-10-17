@@ -82,7 +82,7 @@ class PixTransactionController(BaseController):
 
         pix_transaction = self._record_pix(pix, source_account, destination_account, device)
         analysis = self._record_analysis(pix_transaction, policy, features, engine_result)
-        self._update_aggregates(pix, pix_transaction, destination_account, device, features, engine_result)
+        self._update_aggregates(pix, destination_account, device, features, engine_result)
 
         analysis_dto = PixAnalysisDTO.obj_to_dict(analysis)
         self.session.commit()
@@ -146,6 +146,7 @@ class PixTransactionController(BaseController):
                 "score_app": decision.scores["app"],
                 "score_mule": decision.scores["mule"],
                 "path": engine_result.path,
+                "device_trusted": features.device_trusted,
                 "layers": engine_result.layers,
                 "features": features.to_dict(),
             },
@@ -173,7 +174,6 @@ class PixTransactionController(BaseController):
     def _update_aggregates(
         self,
         pix: dict,
-        pix_transaction: PixTransaction,
         destination_account: Account,
         device: Device,
         features: PixFeatures,
@@ -201,9 +201,7 @@ class PixTransactionController(BaseController):
         self.payer_profile_repository.add_approved(profile, pix["amount"], transaction_date)
         self.payer_payee_pair_repository.add_approved(pair, pix["amount"])
 
-        # O primeiro Pix aprovado é o que cadastra o aparelho.
-        if device_owner.first_approved_pix_id is None:
-            self.device_owner_repository.set_first_approved(device_owner, pix_transaction)
+        self.device_owner_repository.add_approved(device_owner, transaction_date)
 
         # Mover o próprio dinheiro de madrugada não diz nada sobre o limite
         # noturno que o cliente configurou para pagar terceiros.

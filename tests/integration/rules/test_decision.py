@@ -46,13 +46,14 @@ class TestDecisionLayers:
     """Esforço proporcional ao risco: o Pix rotineiro não paga o custo do suspeito."""
 
     def test_routine_pix_takes_the_fast_path(self):
-        """Aparelho conhecido, destino já pago, de dia, dentro do perfil: caminho rápido."""
+        """Aparelho confiável, destino já pago, de dia, dentro do perfil: caminho rápido."""
         context = {
             "payer_document": RandomGenerator.generate_cpf(),
             "device_id": f"dvc-{uuid4().hex[:12]}",
             "payee_document": RandomGenerator.generate_cpf(),
             "payee_account_number": RandomGenerator.generate_account_number(),
         }
+        Scenario.register_device(context["payer_document"], context["device_id"], shift_date(DAY, days=-2))
         Scenario.send(**context, amount=10000, transaction_date=shift_date(DAY, days=-1))
 
         response = Scenario.send(**context, amount=10000, transaction_date=DAY)
