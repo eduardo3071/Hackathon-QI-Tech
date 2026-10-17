@@ -1,4 +1,4 @@
-from tests.utils import PayloadGenerator, RequestGenerator
+from tests.utils import PayloadGenerator, RandomGenerator, RequestGenerator
 
 
 class TestPixTransactionGet:
@@ -73,3 +73,24 @@ class TestPixTransactionIdempotency:
 
         assert status == 409
         assert response["code"] == "QIT001002"
+
+    def test_mask_does_not_change_the_content(self):
+        """O mesmo CNPJ com e sem máscara é o mesmo documento, e o mesmo Pix.
+
+        O hash de idempotência é calculado sobre o payload normalizado: o
+        cliente que reenvia formatando o documento de outro jeito recebe a
+        análise gravada, não um 409.
+        """
+        payee_digits = "".join(character for character in RandomGenerator.generate_cnpj() if character.isdigit())
+        payload = PayloadGenerator.create_pix_payload(payee_document=payee_digits)
+
+        status, first = RequestGenerator.POST_pix_transaction(payload)
+        assert status == 201
+
+        payload["destination_account"]["owner"]["document_number"] = (
+            f"{payee_digits[0:2]}.{payee_digits[2:5]}.{payee_digits[5:8]}/{payee_digits[8:12]}-{payee_digits[12:14]}"
+        )
+        status, second = RequestGenerator.POST_pix_transaction(payload)
+
+        assert status == 200
+        assert second == first

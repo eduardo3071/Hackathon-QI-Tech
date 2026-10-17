@@ -104,7 +104,6 @@ class TestEndToEndScenarios:
 
         assert responses[4]["status"] == "rejected"
 
-    @pytest.mark.xfail(strict=True, reason="tarefa 2: idempotência com payload normalizado")
     def test_replay_with_masked_cpf(self):
         payer_digits = re.sub(r"\D", "", RandomGenerator.generate_cpf())
         masked = f"{payer_digits[0:3]}.{payer_digits[3:6]}.{payer_digits[6:9]}-{payer_digits[9:11]}"

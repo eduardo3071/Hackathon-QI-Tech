@@ -1,5 +1,6 @@
 import hashlib
 import json
+from copy import deepcopy
 from datetime import datetime
 from typing import Tuple
 
@@ -269,7 +270,7 @@ class PixTransactionController(BaseController):
 
         return {
             "external_id": pix_payload["id"],
-            "payload_hash": self._payload_hash(pix_payload),
+            "payload_hash": self._payload_hash(pix_payload, payer_document, payee_document),
             "amount": int(pix_payload["amount"]),
             "transaction_date": transaction_date,
             "payer_document": payer_document,
@@ -320,12 +321,22 @@ class PixTransactionController(BaseController):
 
         return Account.COMPANY
 
-    def _payload_hash(self, pix_payload: dict) -> str:
+    def _payload_hash(self, pix_payload: dict, payer_document: str, payee_document: str) -> str:
         """A impressão digital do conteúdo, para comparar reenvios do mesmo `id`.
 
-        `sort_keys` faz a ordem das chaves não importar: o mesmo Pix com os
-        campos em outra ordem continua sendo o mesmo Pix.
+        O hash é do payload NORMALIZADO, com os documentos só com dígitos:
+        "123.456.789-09" e "12345678909" são o mesmo CPF, e o cliente que
+        reenvia formatando o documento de outro jeito está reenviando o
+        mesmo Pix — não pedindo outro. `sort_keys` faz o mesmo pela ordem
+        dos campos.
+
+        O `deepcopy` não é frescura: sem ele, a troca dos documentos sujaria
+        o payload que vai ser gravado como chegou, em `raw_payload`.
         """
-        canonical = json.dumps(pix_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        normalized_payload = deepcopy(pix_payload)
+        normalized_payload["source_account"]["owner"]["document_number"] = payer_document
+        normalized_payload["destination_account"]["owner"]["document_number"] = payee_document
+
+        canonical = json.dumps(normalized_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
