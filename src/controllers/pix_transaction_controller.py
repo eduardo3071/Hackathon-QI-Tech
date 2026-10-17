@@ -1,4 +1,5 @@
 import hashlib
+import ipaddress
 import json
 from copy import deepcopy
 from datetime import datetime
@@ -10,7 +11,14 @@ from controllers.feature_builder import FeatureBuilder
 from controllers.features import PixFeatures
 from controllers.rules import PolicyParameters
 from dtos import PixAnalysisDTO
-from errors import InvalidDate, InvalidDocumentNumber, NoActivePolicy, NotFoundPixTransaction, PixTransactionConflict
+from errors import (
+    InvalidDate,
+    InvalidDocumentNumber,
+    InvalidIpAddress,
+    NoActivePolicy,
+    NotFoundPixTransaction,
+    PixTransactionConflict,
+)
 from models import Account, AnalysisStatus, Device, PixTransaction
 from repositories import (
     AccountRepository,
@@ -252,7 +260,8 @@ class PixTransactionController(BaseController):
 
         O schema garantiu o FORMATO. O que ele não sabe, e é cobrado
         aqui com 422: se o CPF/CNPJ fecha a conta dos dígitos
-        verificadores e se a data existe no calendário.
+        verificadores, se a data existe no calendário e se o IP é um IPv4
+        ou IPv6 de verdade.
         """
         source_account = pix_payload["source_account"]
         destination_account = pix_payload["destination_account"]
@@ -298,7 +307,7 @@ class PixTransactionController(BaseController):
             },
             "device_id": source["device_id"],
             "channel": source["channel"],
-            "ip": source["ip"],
+            "ip": self._parse_ip(source["ip"]),
             "latitude": latitude,
             "longitude": longitude,
             "raw_payload": pix_payload,
@@ -309,6 +318,13 @@ class PixTransactionController(BaseController):
             raise InvalidDocumentNumber(raw_document)
 
         return only_digits(raw_document)
+
+    def _parse_ip(self, raw_ip: str) -> str:
+        """O IP na forma canônica: o mesmo IPv6 escrito de dois jeitos vira o mesmo texto."""
+        try:
+            return str(ipaddress.ip_address(raw_ip))
+        except ValueError:
+            raise InvalidIpAddress(raw_ip)
 
     def _parse_date(self, field_name: str, raw_date: str) -> datetime:
         try:

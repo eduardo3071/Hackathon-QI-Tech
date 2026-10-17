@@ -68,6 +68,26 @@ class InvalidDate(QIException):
         super().__init__(title, self.code, http_status, description, translation)
 
 
+class InvalidIpAddress(QIException):
+    """O IP tem cara de IP e não é um IPv4 nem um IPv6 de verdade.
+
+    422 pelo mesmo motivo do CPF: a API leu o pedido, e o valor é que não
+    pode existir — "999.1.1.1" tem quatro números separados por ponto, e
+    nenhum IPv4 passa de 255. Quem confere é o módulo `ipaddress` do
+    Python, no controller; um `pattern` de JSON Schema para IPv6 é
+    ilegível e erra nos casos de borda.
+    """
+
+    code = "QIT001006"
+
+    def __init__(self, ip) -> None:
+        title = "Invalid IP Address"
+        http_status = 422
+        description = f"The IP {ip} is not a valid IPv4 or IPv6 address."
+        translation = "O IP informado não é um IPv4 nem um IPv6 válido."
+        super().__init__(title, self.code, http_status, description, translation)
+
+
 class NoActivePolicy(QIException):
     """Não há política ativa no banco: o motor não tem com que decidir.
 
