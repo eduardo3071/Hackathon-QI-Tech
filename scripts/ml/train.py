@@ -6,7 +6,11 @@
 
 No container, com as versões da imagem:
 
-    docker compose run --rm -v "$PWD/scripts:/scripts" -e PYTHONPATH=/app api python /scripts/ml/train.py
+    docker compose run --rm -u root -v "$PWD/scripts:/scripts" -e PYTHONPATH=/app api \
+        python /scripts/ml/train.py --output /app/ml/artifacts/iforest-v1.json
+
+(dentro do container o código fica em /app, montado de ./src; o -u root é
+porque a imagem roda com um usuário sem permissão de escrita ali.)
 
 Lê as features que cada análise já grava (`analysis.features`) dos Pix com
 `id` `sim-legit-`, treina só com eles (o modelo aprende o normal, e não as
