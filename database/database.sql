@@ -331,6 +331,12 @@ CROSS JOIN (VALUES
     ('RITMO.velocidade',
      '{"window_minutes": 10, "two_factor_count": 5, "reject_count": 10, "min_window_amount": 100000}'),
 
+    -- Estimativa: 3 ou mais Pix em 1 h, cada um entre 90% e 100% de um
+    -- limite da política (R$ 200 do aparelho não cadastrado, R$ 1.000 do
+    -- noturno), pedem 2FA de limite.
+    ('RITMO.fracionamento',
+     '{"window_minutes": 60, "min_count": 3, "band_floor_percent": 90}'),
+
     -- Estimativa: acima do P95 e de 5x a mediana dos aprovados em 90 dias,
     -- com pelo menos 5 Pix; sem histórico, R$ 1.000 (entre o Pix médio
     -- entre pessoas, R$ 273, e a fraude média, R$ 1.735).

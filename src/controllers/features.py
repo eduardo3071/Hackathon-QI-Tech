@@ -41,6 +41,9 @@ class PixFeatures:
     # Regra 3 — velocidade (pares recebedor+valor distintos, sem o deste Pix)
     velocity_attempts: Optional[int]
     velocity_amount: Optional[int]
+    # Valores das tentativas anteriores na janela do fracionamento, um por
+    # par (recebedor, valor), sem o deste Pix.
+    fractioning_window_amounts: Optional[List[int]]
 
     # Regra 4 — perfil
     profile_amounts: Optional[List[int]]

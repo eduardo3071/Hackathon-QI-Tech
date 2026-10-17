@@ -81,6 +81,7 @@ class FeatureBuilder:
             max_night_approved_amount=max_night_approved_amount,
             velocity_attempts=velocity["attempts"],
             velocity_amount=velocity["amount"],
+            fractioning_window_amounts=self._fractioning_window_amounts(pix, params.of("RITMO.fracionamento")),
             profile_amounts=self._profile_amounts(profile, transaction_date, params.of("PERFIL.valor")),
             pair_approved_count=pair_approved_count,
             pair_scam_step_up_count=pair_scam_step_up_count,
@@ -282,3 +283,20 @@ class FeatureBuilder:
         payers.add(pix["payer_document"])
 
         return len(payers)
+
+    def _fractioning_window_amounts(self, pix: dict, parameters):
+        """Os valores das tentativas anteriores do pagador na janela, como a velocidade os conta.
+
+        O mesmo Pix refeito com `id` novo (mesmo recebedor, mesmo valor)
+        entra uma vez só, como na velocidade: refazer o Pix não é picar.
+        """
+        if parameters is None:
+            return None
+
+        window_start = pix["transaction_date"] - timedelta(minutes=parameters["window_minutes"])
+        groups = set(
+            self.pix_feature_repository.attempt_groups(pix["payer_document"], window_start, pix["transaction_date"])
+        )
+        groups.discard((pix["payee_document"], pix["amount"]))
+
+        return sorted(amount for _payee, amount in groups)

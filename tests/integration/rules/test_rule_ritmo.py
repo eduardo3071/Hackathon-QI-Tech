@@ -120,3 +120,61 @@ class TestRuleRitmoVelocidade:
 
         assert responses[4]["status"] == "two_factor_required"
         assert reason_for(responses[4], "RITMO.velocidade")["observed"]["attempts"] == 5
+
+
+def payer_with_trusted_device() -> dict:
+    context = {"payer_document": RandomGenerator.generate_cpf(), "device_id": f"dvc-{uuid4().hex[:12]}"}
+    Scenario.register_device(context["payer_document"], context["device_id"], shift_date(DAY, hours=-3))
+
+    return context
+
+
+class TestRuleRitmoFracionamento:
+    """Regra 3 — RITMO.fracionamento: o valor foi picado para caber no limite?
+
+    Três ou mais Pix em 1 h, cada um entre 90% e 100% de um limite (os
+    R$ 200 do aparelho não cadastrado ou os R$ 1.000 do noturno): é quem
+    divide um valor grande para passar por baixo do teto. Pede 2FA de
+    limite — confirmação no app, sem tipologia de fraude.
+    """
+
+    def test_three_pix_just_below_the_unregistered_device_limit_require_limit_two_factor(self):
+        context = payer_with_trusted_device()
+        for minutes, amount in ((-50, 19000), (-25, 19500)):
+            Scenario.send(**context, amount=amount, transaction_date=shift_date(DAY, minutes=minutes))
+
+        response = Scenario.send(**context, amount=19900, transaction_date=DAY)
+
+        assert response["status"] == "two_factor_required"
+        assert response["metadata"]["step_up_reason"] == "limit"
+        reason = reason_for(response, "RITMO.fracionamento")
+        assert reason["outcome"] == "two_factor"
+        assert reason["observed"]["pix_in_band"] == 3
+
+    def test_third_pix_below_the_band_passes(self):
+        """R$ 179 fica abaixo de 90% de R$ 200: não é o valor picado para caber no teto."""
+        context = payer_with_trusted_device()
+        for minutes, amount in ((-50, 19000), (-25, 19500)):
+            Scenario.send(**context, amount=amount, transaction_date=shift_date(DAY, minutes=minutes))
+
+        response = Scenario.send(**context, amount=17900, transaction_date=DAY)
+
+        assert reason_for(response, "RITMO.fracionamento") is None
+
+    def test_pix_outside_the_hour_do_not_count(self):
+        context = payer_with_trusted_device()
+        for minutes, amount in ((-61, 19000), (-25, 19500)):
+            Scenario.send(**context, amount=amount, transaction_date=shift_date(DAY, minutes=minutes))
+
+        response = Scenario.send(**context, amount=19900, transaction_date=DAY)
+
+        assert reason_for(response, "RITMO.fracionamento") is None
+
+    def test_three_pix_just_below_the_night_limit_require_limit_two_factor(self):
+        context = payer_with_trusted_device()
+        for minutes in (-50, -25):
+            Scenario.send(**context, amount=95000, transaction_date=shift_date(DAY, minutes=minutes))
+
+        response = Scenario.send(**context, amount=99000, transaction_date=DAY)
+
+        assert reason_for(response, "RITMO.fracionamento")["outcome"] == "two_factor"

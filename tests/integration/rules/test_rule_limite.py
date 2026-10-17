@@ -50,7 +50,10 @@ class TestRuleLimiteAparelhoNaoCadastrado:
         """Cinco aparelhos novos de R$ 200 somam R$ 1.000 no dia: o próximo centavo pede 2FA.
 
         Cada aparelho, sozinho, respeita os R$ 200. O teto diário existe
-        justamente para quem troca de aparelho para fracionar.
+        justamente para quem troca de aparelho para fracionar. Os Pix ficam
+        a 61 minutos um do outro: em menos de uma hora, o terceiro de
+        R$ 200 já pediria 2FA pelo RITMO.fracionamento, e o teste deixaria
+        de olhar o teto diário.
         """
         payer = RandomGenerator.generate_cpf()
 
@@ -58,11 +61,11 @@ class TestRuleLimiteAparelhoNaoCadastrado:
             response = Scenario.send(
                 payer_document=payer,
                 amount=20000,
-                transaction_date=shift_date(DAY, minutes=15 * index),
+                transaction_date=shift_date(DAY, minutes=61 * index),
             )
             assert response["status"] == "approved", f"o aparelho {index + 1} já pediu 2FA"
 
-        response = Scenario.send(payer_document=payer, amount=1, transaction_date=shift_date(DAY, minutes=75))
+        response = Scenario.send(payer_document=payer, amount=1, transaction_date=shift_date(DAY, minutes=61 * 5))
 
         assert response["status"] == "two_factor_required"
         reason = reason_for(response, "LIMITE.aparelho_nao_cadastrado")
@@ -117,19 +120,21 @@ class TestRuleLimiteConfiancaDoAparelho:
         """Cinco Pix de R$ 180 do mesmo aparelho novo somam R$ 900; o sexto passa de R$ 1.000.
 
         Cada um respeita os R$ 200 por Pix, e o aparelho não vira confiável
-        no meio do dia: todos contam no teto diário.
+        no meio do dia: todos contam no teto diário. A 61 minutos um do
+        outro, para o RITMO.fracionamento não pedir 2FA antes (R$ 180 é 90%
+        de R$ 200).
         """
         payer = RandomGenerator.generate_cpf()
         device = new_device()
 
         for index in range(5):
             response = Scenario.send(
-                payer_document=payer, device_id=device, amount=18000, transaction_date=shift_date(DAY, minutes=15 * index)
+                payer_document=payer, device_id=device, amount=18000, transaction_date=shift_date(DAY, minutes=61 * index)
             )
             assert response["status"] == "approved", f"o Pix {index + 1} já pediu 2FA"
 
         response = Scenario.send(
-            payer_document=payer, device_id=device, amount=18000, transaction_date=shift_date(DAY, minutes=75)
+            payer_document=payer, device_id=device, amount=18000, transaction_date=shift_date(DAY, minutes=61 * 5)
         )
 
         assert response["status"] == "two_factor_required"

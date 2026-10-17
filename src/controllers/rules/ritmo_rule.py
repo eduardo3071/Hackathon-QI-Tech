@@ -5,6 +5,7 @@ from controllers.rules.signal_result import ATO, PASS, REJECT, TWO_FACTOR, Signa
 from utils.money import format_brl
 
 VELOCITY = "RITMO.velocidade"
+FRACTIONING = "RITMO.fracionamento"
 
 
 class RitmoRule(BaseRule):
@@ -18,7 +19,10 @@ class RitmoRule(BaseRule):
 
     def __init__(self) -> None:
         super().__init__()
-        self.signals = {VELOCITY: (0, self._evaluate_velocity)}
+        self.signals = {
+            VELOCITY: (0, self._evaluate_velocity),
+            FRACTIONING: (2, self._evaluate_fractioning),
+        }
 
     def _evaluate_velocity(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> SignalResult:
         """Contagem E soma na mesma janela.
@@ -80,4 +84,54 @@ class RitmoRule(BaseRule):
 
         return self.result(
             VELOCITY, 0, PASS, "Ritmo de tentativas dentro do esperado.", observed=observed, threshold=threshold
+        )
+
+    def _evaluate_fractioning(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> SignalResult:
+        """Vários Pix logo abaixo de um limite, na mesma hora: o valor picado para caber no teto.
+
+        Os limites são os da própria política: os R$ 200 por Pix do
+        aparelho não cadastrado e os R$ 1.000 do noturno. Um Pix "logo
+        abaixo" fica entre 90% e 100% de um deles. Pede 2FA de limite —
+        confirmação no app, sem tipologia de fraude: picar o valor é jeito
+        de passar pelo limite, não prova de quem opera.
+        """
+        limits = []
+        for signal_code, limit_field in (
+            ("LIMITE.aparelho_nao_cadastrado", "max_amount_per_pix"),
+            ("LIMITE.noturno", "max_night_amount"),
+        ):
+            if params.of(signal_code) is not None:
+                limits.append(params.of(signal_code)[limit_field])
+
+        floor_percent = parameters["band_floor_percent"]
+
+        def in_band(amount: int) -> bool:
+            return any(limit * floor_percent <= amount * 100 <= limit * 100 for limit in limits)
+
+        pix_in_band = 0
+        if in_band(features.amount):
+            pix_in_band = 1 + sum(1 for amount in features.fractioning_window_amounts if in_band(amount))
+
+        min_count = parameters["min_count"]
+        observed = {"pix_in_band": pix_in_band}
+        threshold = {
+            "min_count": min_count,
+            "window_minutes": parameters["window_minutes"],
+            "band_floor_percent": floor_percent,
+            "limits": limits,
+        }
+
+        if pix_in_band >= min_count:
+            return self.result(
+                FRACTIONING,
+                2,
+                TWO_FACTOR,
+                f"{pix_in_band} Pix em {parameters['window_minutes']} minutos, cada um logo abaixo de um limite "
+                f"({', '.join(format_brl(limit) for limit in limits)}): valor picado para caber no teto.",
+                observed=observed,
+                threshold=threshold,
+            )
+
+        return self.result(
+            FRACTIONING, 2, PASS, "Sem sequência de Pix logo abaixo de um limite.", observed=observed, threshold=threshold
         )
