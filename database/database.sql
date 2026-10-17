@@ -367,6 +367,12 @@ CROSS JOIN (VALUES
     ('QUEM_OPERA.aparelho_compartilhado',
      '{"window_days": 30, "min_distinct_payers": 3, "points": 60}'),
 
+    -- Estimativa: mais de 900 km/h desde o último Pix aprovado com
+    -- geolocalização (acima de um avião comercial), ignorando menos de
+    -- 5 km (imprecisão do GPS). Pontua invasão no corte (60): biometria.
+    ('QUEM_OPERA.viagem_impossivel',
+     '{"max_speed_kmh": 900, "min_distance_km": 5, "points": 60}'),
+
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
     -- diferentes: um sinal sozinho não é "risco claro".

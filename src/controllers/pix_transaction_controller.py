@@ -369,7 +369,11 @@ class PixTransactionController(BaseController):
         if is_night and not same_ownership:
             self.payer_profile_repository.update_max_night_approved_amount(profile, pix["amount"])
 
-        if pix["latitude"] is not None:
+        # O último local é o do Pix aprovado mais RECENTE: um Pix que chega
+        # fora de ordem não pode voltar o relógio da viagem impossível.
+        if pix["latitude"] is not None and (
+            profile.last_geolocation_at is None or transaction_date >= profile.last_geolocation_at
+        ):
             self.payer_profile_repository.update_last_geolocation(
                 profile, pix["latitude"], pix["longitude"], transaction_date
             )

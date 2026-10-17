@@ -5,6 +5,7 @@ from constants import LOCAL_TIMEZONE
 from controllers.decision import STEP_UP_POSSIBLE_SCAM
 from controllers.device_trust import DeviceTrust
 from controllers.features import PixFeatures
+from utils.geo import haversine_km
 from controllers.rules.policy_parameters import PolicyParameters
 from database import Context
 from models import Account, AnalysisStatus
@@ -54,6 +55,7 @@ class FeatureBuilder:
             pair_approved_count = pair.approved_count
             pair_scam_step_up_count = pair.scam_step_up_count
 
+        last_location = self._last_location(pix, profile)
         night = self._night(pix, local_date, params.of("LIMITE.noturno"))
         velocity = self._velocity(pix, params.of("RITMO.velocidade"))
 
@@ -85,6 +87,9 @@ class FeatureBuilder:
             device_distinct_payers=self._device_distinct_payers(
                 pix, device, params.of("QUEM_OPERA.aparelho_compartilhado")
             ),
+            has_geolocation=pix["latitude"] is not None,
+            last_location_distance_km=last_location["distance_km"],
+            last_location_hours=last_location["hours"],
             payee_account_age_days=max(0, (transaction_date - destination_account.opening_date).days),
             payee_prior_approved_credits=self.pix_feature_repository.count_credits(
                 destination_account.id, AnalysisStatus.APPROVED
@@ -241,3 +246,15 @@ class FeatureBuilder:
         payers.add(pix["payer_document"])
 
         return len(payers)
+
+    def _last_location(self, pix: dict, profile) -> dict:
+        """Distância e tempo até o último Pix aprovado com geolocalização deste pagador."""
+        if pix["latitude"] is None or profile is None or profile.last_geolocation_at is None:
+            return {"distance_km": None, "hours": None}
+
+        distance_km = haversine_km(
+            float(profile.last_latitude), float(profile.last_longitude), float(pix["latitude"]), float(pix["longitude"])
+        )
+        hours = (pix["transaction_date"] - profile.last_geolocation_at).total_seconds() / 3600
+
+        return {"distance_km": round(distance_km, 3), "hours": hours}

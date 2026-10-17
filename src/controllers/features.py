@@ -49,6 +49,11 @@ class PixFeatures:
 
     # Regra 5 — quem está operando
     device_distinct_payers: Optional[int]
+    has_geolocation: bool
+    # Até o último Pix APROVADO com geolocalização; None sem esse histórico.
+    # As horas podem ser zero ou negativas (Pix que chegou fora de ordem).
+    last_location_distance_km: Optional[float]
+    last_location_hours: Optional[float]
 
     # Regra 6 — conta recebedora
     payee_account_age_days: int
