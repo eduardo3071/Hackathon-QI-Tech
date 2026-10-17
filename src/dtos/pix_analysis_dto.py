@@ -59,17 +59,39 @@ class PixAnalysisDTO:
             "passed": passed,
         }
 
+        # O status com que a análise NASCEU, e não o atual: é a resposta do
+        # POST, e o reenvio do mesmo POST tem de receber a mesma resposta,
+        # mesmo depois do retorno do 2FA. O status atual mora no dossiê.
         return {
             "key": analysis.analysis_key,
-            "status": analysis.status.enumerator,
+            "status": analysis.birth_event.to_status.enumerator,
             "metadata": metadata,
         }
 
     @staticmethod
     def obj_to_dossier_dict(analysis: Analysis) -> dict:
-        """A decisão mais a trilha de status: por onde a análise passou, não só onde está."""
+        """A decisão mais a trilha de status: por onde a análise passou, não só onde está.
+
+        O `status` é o ATUAL — depois de um retorno do 2FA, o resultado
+        final. O `metadata` conta de onde ele veio: o status inicial, como
+        o 2FA terminou (ou `None`, se não voltou ou nem foi pedido) e a
+        trilha inteira.
+        """
         analysis_dto = PixAnalysisDTO.obj_to_dict(analysis)
-        analysis_dto["metadata"]["status_history"] = [
+        analysis_dto["status"] = analysis.status.enumerator
+
+        two_factor = None
+        two_factor_event = analysis.two_factor_event
+        if two_factor_event is not None:
+            two_factor = {
+                "result": two_factor_event.two_factor_result,
+                "completed_at": PixAnalysisDTO.datetime_to_str(two_factor_event.event_datetime),
+            }
+
+        metadata = analysis_dto["metadata"]
+        metadata["initial_status"] = analysis.birth_event.to_status.enumerator
+        metadata["two_factor"] = two_factor
+        metadata["status_history"] = [
             PixAnalysisDTO.status_event_to_dict(status_event) for status_event in analysis.status_events
         ]
 
@@ -84,10 +106,14 @@ class PixAnalysisDTO:
         return {
             "from_status": from_status,
             "to_status": status_event.to_status.enumerator,
-            # Em UTC, sempre: o mesmo instante sai escrito do mesmo jeito,
-            # tenha ele chegado com -03:00 no PATCH ou voltado do banco.
-            "event_datetime": status_event.event_datetime.astimezone(timezone.utc).isoformat(),
+            "event_datetime": PixAnalysisDTO.datetime_to_str(status_event.event_datetime),
         }
+
+    @staticmethod
+    def datetime_to_str(value) -> str:
+        """Em UTC, sempre: o mesmo instante sai escrito do mesmo jeito,
+        tenha ele chegado com -03:00 no PATCH ou voltado do banco."""
+        return value.astimezone(timezone.utc).isoformat()
 
     @staticmethod
     def rule_result_to_dict(rule_result) -> dict:

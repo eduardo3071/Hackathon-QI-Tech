@@ -1,3 +1,5 @@
+from typing import Optional
+
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, func
 from sqlalchemy.orm import relationship
 from models.base import Base
@@ -35,3 +37,15 @@ class AnalysisStatusEvent(Base):
     @property
     def is_birth(self) -> bool:
         return self.from_status_id is None and self.from_status is None
+
+    @property
+    def two_factor_result(self) -> Optional[str]:
+        """O resultado do 2FA que este evento registra, ou None se ele não é um retorno do 2FA."""
+        if self.is_birth:
+            return None
+
+        for result, status in TWO_FACTOR_RESULT_STATUS.items():
+            if self.to_status.enumerator == status:
+                return result
+
+        return None

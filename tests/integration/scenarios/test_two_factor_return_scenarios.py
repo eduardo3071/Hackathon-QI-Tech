@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import uuid4
 
 from tests.utils import RandomGenerator, RequestGenerator, Scenario, reason_for, shift_date
@@ -183,3 +184,24 @@ class TestTwoFactorReturnScenarios:
             assert response["status"] == "two_factor_required", transaction_date
             assert response["metadata"]["step_up_method"] == "face_liveness"
             assert reason_for(response, "LIMITE.aparelho_nao_cadastrado")["outcome"] == "two_factor"
+
+    def test_get_after_passed_tells_the_whole_story(self):
+        """GET depois de um `passed`: o status é o final, e o dossiê conta de onde ele veio."""
+        pix = send(amount=150000, transaction_date=DAY)
+        assert pix["status"] == "two_factor_required"
+
+        completed_at = shift_date(DAY, minutes=1)
+        send_two_factor_return(pix, "passed", completed_at)
+
+        status, fetched = RequestGenerator.GET_pix_transaction(pix["id"])
+        assert status == 200
+
+        metadata = fetched["metadata"]
+        assert fetched["status"] == "approved"
+        assert metadata["initial_status"] == "two_factor_required"
+        assert metadata["two_factor"]["result"] == "passed"
+        assert datetime.fromisoformat(metadata["two_factor"]["completed_at"]) == datetime.fromisoformat(completed_at)
+        assert [(event["from_status"], event["to_status"]) for event in metadata["status_history"]] == [
+            (None, "two_factor_required"),
+            ("two_factor_required", "approved"),
+        ]

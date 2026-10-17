@@ -3,7 +3,7 @@ import ipaddress
 import json
 from copy import deepcopy
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Tuple
 
 from controllers.analysis_engine import AnalysisEngine, EngineResult
 from controllers.base_controller import BaseController
@@ -150,8 +150,9 @@ class PixTransactionController(BaseController):
         )
         analysis = self.analysis_repository.get_current(pix_transaction.id)
 
-        recorded_result = self._recorded_two_factor_result(analysis)
-        if recorded_result is not None:
+        two_factor_event = analysis.two_factor_event
+        if two_factor_event is not None:
+            recorded_result = two_factor_event.two_factor_result
             if recorded_result != result:
                 raise TwoFactorResultConflict(pix_id, recorded_result)
 
@@ -217,18 +218,6 @@ class PixTransactionController(BaseController):
             raise NoActivePolicy()
 
         return policy, PolicyParameters(policy)
-
-    def _recorded_two_factor_result(self, analysis) -> Optional[str]:
-        """O resultado do 2FA já gravado na trilha, ou None se o 2FA ainda não voltou."""
-        for status_event in analysis.status_events:
-            if status_event.is_birth:
-                continue
-
-            for result, status in TWO_FACTOR_RESULT_STATUS.items():
-                if status_event.to_status.enumerator == status:
-                    return result
-
-        return None
 
     def _replay(self, recorded_pix, pix: dict) -> dict:
         """O mesmo `id` de novo: retentativa devolve o gravado; conteúdo novo é conflito.

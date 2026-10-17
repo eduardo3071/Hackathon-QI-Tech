@@ -37,14 +37,27 @@ class TestPixTransactionGet:
         assert birth["to_status"] == created["status"]
         assert datetime.fromisoformat(birth["event_datetime"]) == datetime.fromisoformat(payload["transaction_date"])
 
-    def test_post_does_not_carry_the_status_history(self):
+    def test_without_two_factor_return_the_initial_status_is_the_status(self):
+        payload = PayloadGenerator.create_pix_payload()
+
+        status, created = RequestGenerator.POST_pix_transaction(payload)
+        assert status == 201
+
+        status, fetched = RequestGenerator.GET_pix_transaction(payload["id"])
+
+        assert status == 200
+        assert fetched["metadata"]["initial_status"] == created["status"]
+        assert fetched["metadata"]["two_factor"] is None
+
+    def test_post_does_not_carry_the_dossier_fields(self):
         """O POST continua com a resposta do slide: a história mora no dossiê (GET)."""
         payload = PayloadGenerator.create_pix_payload()
 
         status, created = RequestGenerator.POST_pix_transaction(payload)
 
         assert status == 201
-        assert "status_history" not in created["metadata"]
+        for field in ("initial_status", "two_factor", "status_history"):
+            assert field not in created["metadata"]
 
     def test_unknown_id_is_not_found(self):
         status, response = RequestGenerator.GET_pix_transaction("pix-que-nunca-existiu")

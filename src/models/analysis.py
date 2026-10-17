@@ -55,3 +55,17 @@ class Analysis(Base):
         order_by="asc(AnalysisStatusEvent.id)",
         lazy="selectin",
     )
+
+    @property
+    def birth_event(self):
+        """O primeiro evento da trilha: o status com que a análise nasceu."""
+        return self.status_events[0]
+
+    @property
+    def two_factor_event(self):
+        """O evento do retorno do 2FA, ou None se o 2FA ainda não voltou (ou nem foi pedido)."""
+        for status_event in self.status_events:
+            if not status_event.is_birth:
+                return status_event
+
+        return None

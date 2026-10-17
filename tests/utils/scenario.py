@@ -81,7 +81,7 @@ def not_needed_signals(response: dict) -> List[str]:
 
 # O que o GET (o dossiê) acrescenta ao que o POST respondeu: a história
 # da decisão, não a decisão.
-DOSSIER_ONLY_FIELDS = ("status_history",)
+DOSSIER_ONLY_FIELDS = ("initial_status", "two_factor", "status_history")
 
 
 def decision_of(response: dict) -> dict:

@@ -78,6 +78,23 @@ class TestTwoFactorReturn:
         assert second == first
         assert len(second["metadata"]["status_history"]) == 2
 
+    def test_post_replay_after_the_return_still_answers_what_the_post_answered(self):
+        """O reenvio do mesmo POST devolve a MESMA resposta do primeiro POST.
+
+        Idempotência é isso: a mesma pergunta, a mesma resposta. Quem quer
+        saber como o 2FA terminou pergunta ao dossiê (GET).
+        """
+        payload = PayloadGenerator.create_pix_payload(amount=150000, transaction_date=TRANSACTION_DATE)
+        status, created = RequestGenerator.POST_pix_transaction(payload)
+        assert status == 201
+        assert created["status"] == "two_factor_required"
+
+        RequestGenerator.PATCH_pix_transaction(payload["id"], two_factor_return("passed"))
+        status, replayed = RequestGenerator.POST_pix_transaction(payload)
+
+        assert status == 200
+        assert replayed == created
+
     def test_different_result_is_a_conflict(self):
         """O 2FA terminou uma vez só: um segundo resultado, diferente, não reescreve o primeiro."""
         payload = two_factor_pix()
