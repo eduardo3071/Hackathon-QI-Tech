@@ -47,6 +47,9 @@ class PixFeatures:
     pair_approved_count: int
     pair_scam_step_up_count: int
 
+    # Regra 5 — quem está operando
+    device_distinct_payers: Optional[int]
+
     # Regra 6 — conta recebedora
     payee_account_age_days: int
     payee_prior_approved_credits: int

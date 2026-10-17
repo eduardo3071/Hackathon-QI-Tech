@@ -361,6 +361,12 @@ CROSS JOIN (VALUES
     ('RASTRO.repasse_rapido',
      '{"window_minutes": 60, "min_forward_share_percent": 80, "points": 60}'),
 
+    -- Estimativa: 3 ou mais CPFs pagadores no mesmo aparelho em 30 dias é
+    -- a fazenda de contas. Pontua conta laranja no corte (60): sozinho
+    -- pede 2FA; com outro sinal de laranja, recusa.
+    ('QUEM_OPERA.aparelho_compartilhado',
+     '{"window_days": 30, "min_distinct_payers": 3, "points": 60}'),
+
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
     -- diferentes: um sinal sozinho não é "risco claro".

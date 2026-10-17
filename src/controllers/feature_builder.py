@@ -82,6 +82,9 @@ class FeatureBuilder:
             profile_amounts=self._profile_amounts(profile, transaction_date, params.of("PERFIL.valor")),
             pair_approved_count=pair_approved_count,
             pair_scam_step_up_count=pair_scam_step_up_count,
+            device_distinct_payers=self._device_distinct_payers(
+                pix, device, params.of("QUEM_OPERA.aparelho_compartilhado")
+            ),
             payee_account_age_days=max(0, (transaction_date - destination_account.opening_date).days),
             payee_prior_approved_credits=self.pix_feature_repository.count_credits(
                 destination_account.id, AnalysisStatus.APPROVED
@@ -226,3 +229,15 @@ class FeatureBuilder:
         return self.pix_feature_repository.sum_third_party_credits(
             pix["payer_document"], window_start, pix["transaction_date"], AnalysisStatus.APPROVED
         )
+
+    def _device_distinct_payers(self, pix: dict, device, parameters):
+        """CPFs pagadores distintos neste aparelho na janela, contando o pagador deste Pix."""
+        if parameters is None:
+            return None
+
+        window_start = pix["transaction_date"] - timedelta(days=parameters["window_days"])
+
+        payers = set(self.pix_feature_repository.distinct_payers_on_device(device.id, window_start, pix["transaction_date"]))
+        payers.add(pix["payer_document"])
+
+        return len(payers)

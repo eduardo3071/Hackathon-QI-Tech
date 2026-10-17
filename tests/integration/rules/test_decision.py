@@ -145,6 +145,7 @@ class TestDecisionLayers:
             "CONTA_RECEBEDORA.fan_in",
             "CONTA_RECEBEDORA.suspeita_anterior",
             "RASTRO.repasse_rapido",
+            "QUEM_OPERA.aparelho_compartilhado",
         }
 
     def test_rejected_pix_is_recorded_and_consultable(self):
