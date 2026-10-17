@@ -9,7 +9,7 @@ from models.fraud_marker import FraudMarker
 from models.pix_transaction import PixTransaction
 from models.analysis import Analysis
 from models.analysis_rule_result import AnalysisRuleResult
-from models.analysis_status_event import AnalysisStatusEvent
+from models.analysis_status_event import AnalysisStatusEvent, TWO_FACTOR_RESULT_STATUS
 from models.payer_profile import PayerProfile
 from models.payer_payee_pair import PayerPayeePair
 from models.device_owner import DeviceOwner

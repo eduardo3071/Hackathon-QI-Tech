@@ -3,7 +3,7 @@ import ipaddress
 import json
 from copy import deepcopy
 from datetime import datetime
-from typing import Tuple
+from typing import Optional, Tuple
 
 from controllers.analysis_engine import AnalysisEngine, EngineResult
 from controllers.base_controller import BaseController
@@ -17,9 +17,12 @@ from errors import (
     InvalidIpAddress,
     NoActivePolicy,
     NotFoundPixTransaction,
+    PixNotAwaitingTwoFactor,
     PixTransactionConflict,
+    TwoFactorCompletedBeforePix,
+    TwoFactorResultConflict,
 )
-from models import Account, AnalysisStatus, Device, PixTransaction
+from models import TWO_FACTOR_RESULT_STATUS, Account, AnalysisStatus, Device, PixTransaction
 from repositories import (
     AccountRepository,
     AnalysisRepository,
@@ -67,7 +70,11 @@ class PixTransactionController(BaseController):
 
         pix = self._parse_pix(pix_payload)
 
-        self.pix_transaction_repository.lock(self._lock_keys(pix))
+        self.pix_transaction_repository.lock(
+            self._lock_keys(
+                pix["external_id"], pix["payer_document"], pix["payee_document"], pix["payee_type"], pix["device_id"]
+            )
+        )
 
         recorded_pix = self.pix_transaction_repository.get_by_external_id(pix["external_id"])
         if recorded_pix is not None:
@@ -106,6 +113,71 @@ class PixTransactionController(BaseController):
             raise NotFoundPixTransaction(pix_id)
 
         return PixAnalysisDTO.obj_to_dossier_dict(pix_transaction.analysis)
+
+    def apply_two_factor_result(self, pix_id: str, two_factor_payload: dict) -> dict:
+        """O retorno do 2FA: `two_factor_required` vira `approved` ou `rejected`, uma vez só.
+
+        A ordem é a mesma do `create`: conferir o valor, travar, e só
+        DEPOIS da trava perguntar em que estado a análise está. Dois
+        retornos simultâneos viram fila, e o segundo encontra o primeiro
+        já gravado. A trava é a mesma do POST porque o retorno atualiza
+        as mesmas agregadas (perfil, par, aparelho).
+
+        O retorno não reavalia as regras: a decisão foi tomada no POST, e
+        aqui só se registra como o 2FA terminou. Ele também não conta
+        como tentativa na velocidade — nenhum Pix novo é gravado.
+        """
+        self.logger.debug(f"Aplicando o retorno do 2FA do Pix {pix_id}")
+
+        result = two_factor_payload["two_factor_result"]
+        completed_at = self._parse_date("completed_at", two_factor_payload["completed_at"])
+
+        pix_transaction = self.pix_transaction_repository.get_by_external_id(pix_id)
+        if pix_transaction is None:
+            raise NotFoundPixTransaction(pix_id)
+
+        if completed_at < pix_transaction.transaction_date:
+            raise TwoFactorCompletedBeforePix(pix_id)
+
+        self.pix_transaction_repository.lock(
+            self._lock_keys(
+                pix_transaction.external_id,
+                pix_transaction.payer_document_number,
+                pix_transaction.payee_document_number,
+                pix_transaction.destination_account.owner_type,
+                pix_transaction.device.device_id,
+            )
+        )
+        analysis = self.analysis_repository.get_current(pix_transaction.id)
+
+        recorded_result = self._recorded_two_factor_result(analysis)
+        if recorded_result is not None:
+            if recorded_result != result:
+                raise TwoFactorResultConflict(pix_id, recorded_result)
+
+            return PixAnalysisDTO.obj_to_dossier_dict(analysis)
+
+        if analysis.status.enumerator != AnalysisStatus.TWO_FACTOR_REQUIRED:
+            raise PixNotAwaitingTwoFactor(pix_id, analysis.status.enumerator)
+
+        self.analysis_repository.change_status(analysis, TWO_FACTOR_RESULT_STATUS[result], completed_at)
+
+        analysis_dto = PixAnalysisDTO.obj_to_dossier_dict(analysis)
+        self.session.commit()
+
+        return analysis_dto
+
+    def _recorded_two_factor_result(self, analysis) -> Optional[str]:
+        """O resultado do 2FA já gravado na trilha, ou None se o 2FA ainda não voltou."""
+        for status_event in analysis.status_events:
+            if status_event.is_birth:
+                continue
+
+            for result, status in TWO_FACTOR_RESULT_STATUS.items():
+                if status_event.to_status.enumerator == status:
+                    return result
+
+        return None
 
     def _replay(self, recorded_pix, pix: dict) -> dict:
         """O mesmo `id` de novo: retentativa devolve o gravado; conteúdo novo é conflito.
@@ -225,7 +297,9 @@ class PixTransactionController(BaseController):
                 profile, pix["latitude"], pix["longitude"], transaction_date
             )
 
-    def _lock_keys(self, pix: dict) -> list:
+    def _lock_keys(
+        self, external_id: str, payer_document: str, payee_document: str, payee_type: str, device_id: str
+    ) -> list:
         """As chaves da trava, em ordem crescente — sempre a mesma ordem para todos.
 
         Duas requisições que travam as mesmas duas chaves em ordens
@@ -246,13 +320,13 @@ class PixTransactionController(BaseController):
         da PESSOA, não do papel que ela tem neste Pix.
         """
         lock_keys = {
-            f"pix:{pix['external_id']}",
-            f"document:{pix['payer_document']}",
-            f"device:{pix['device_id']}",
+            f"pix:{external_id}",
+            f"document:{payer_document}",
+            f"device:{device_id}",
         }
 
-        if pix["payee_type"] == Account.PERSON:
-            lock_keys.add(f"document:{pix['payee_document']}")
+        if payee_type == Account.PERSON:
+            lock_keys.add(f"document:{payee_document}")
 
         return sorted(lock_keys)
 

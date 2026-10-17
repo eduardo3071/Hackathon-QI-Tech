@@ -3,6 +3,14 @@ from sqlalchemy.orm import relationship
 from models.base import Base
 from models import Analysis, AnalysisStatus
 
+# O resultado do 2FA é o status para onde a análise vai.
+TWO_FACTOR_PASSED = "passed"
+TWO_FACTOR_FAILED = "failed"
+TWO_FACTOR_RESULT_STATUS = {
+    TWO_FACTOR_PASSED: AnalysisStatus.APPROVED,
+    TWO_FACTOR_FAILED: AnalysisStatus.REJECTED,
+}
+
 
 class AnalysisStatusEvent(Base):
     """Um passo da trilha de status da análise: de onde veio, para onde foi e quando.
@@ -23,3 +31,7 @@ class AnalysisStatusEvent(Base):
     analysis = relationship("Analysis", foreign_keys=[analysis_id], back_populates="status_events")
     from_status = relationship("AnalysisStatus", foreign_keys=[from_status_id], lazy="selectin")
     to_status = relationship("AnalysisStatus", foreign_keys=[to_status_id], lazy="selectin")
+
+    @property
+    def is_birth(self) -> bool:
+        return self.from_status_id is None and self.from_status is None

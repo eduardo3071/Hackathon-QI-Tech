@@ -38,3 +38,11 @@ class PixTransactionResource:
         analysis = controller.get_by_id(pix_id)
 
         return JSONResponse(content=jsonable_encoder(analysis), status_code=http_status.HTTP_200_OK)
+
+    @SchemaHandler.validate("patch_pix_transaction.json")
+    def on_patch(self, pix_id: str, payload: dict) -> JSONResponse:
+        """O retorno do 2FA. Responde 200 também quando o mesmo resultado chega de novo."""
+        controller = PixTransactionController()
+        analysis = controller.apply_two_factor_result(pix_id, payload)
+
+        return JSONResponse(content=jsonable_encoder(analysis), status_code=http_status.HTTP_200_OK)

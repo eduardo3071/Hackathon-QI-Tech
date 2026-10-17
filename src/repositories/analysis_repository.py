@@ -28,6 +28,20 @@ class AnalysisRepository:
         self._add_status_event(analysis, analysis.status, new_status, event_datetime)
         analysis.status = new_status
 
+    def get_current(self, pix_transaction_id: int) -> Analysis:
+        """A análise como está no banco AGORA, e não como a sessão a leu antes.
+
+        O `populate_existing` troca o que a sessão já tinha na memória pelo
+        que o banco tem: quem chama acabou de esperar numa trava, e nesse
+        meio-tempo outra requisição pode ter trocado o status.
+        """
+        return (
+            self.session.query(Analysis)
+            .filter(Analysis.pix_transaction_id == pix_transaction_id)
+            .populate_existing()
+            .one()
+        )
+
     def add_rule_result(self, analysis: Analysis, rule_result_data: dict) -> None:
         analysis.rule_results.append(AnalysisRuleResult(**rule_result_data))
 

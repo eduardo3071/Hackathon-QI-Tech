@@ -31,3 +31,16 @@ class RequestGenerator:
             headers=headers,
         )
         return response.response_status, response.response_json
+
+    @staticmethod
+    def PATCH_pix_transaction(pix_id: str, two_factor_payload: dict, headers: dict = None) -> BaseConnectorResponse:
+        if headers is None:
+            headers = {"INTERNAL-TOKEN": INTERNAL_TOKEN}
+
+        response = ClientRequisition.send(
+            "PATCH",
+            f"/pix/transaction/{pix_id}",
+            payload=two_factor_payload,
+            headers=headers,
+        )
+        return response.response_status, response.response_json

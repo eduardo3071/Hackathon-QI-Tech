@@ -1,3 +1,5 @@
+from datetime import timezone
+
 from models import Analysis
 
 # Os desfechos que explicam a decisão. Um sinal que passou não é motivo
@@ -82,7 +84,9 @@ class PixAnalysisDTO:
         return {
             "from_status": from_status,
             "to_status": status_event.to_status.enumerator,
-            "event_datetime": status_event.event_datetime.isoformat(),
+            # Em UTC, sempre: o mesmo instante sai escrito do mesmo jeito,
+            # tenha ele chegado com -03:00 no PATCH ou voltado do banco.
+            "event_datetime": status_event.event_datetime.astimezone(timezone.utc).isoformat(),
         }
 
     @staticmethod
