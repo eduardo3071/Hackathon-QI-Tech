@@ -76,3 +76,36 @@ class TestRuleRastroRepasseRapido:
 
         assert response["status"] == "rejected"
         assert response["metadata"]["typology"] == "mule_account"
+
+
+TEN_DAYS_BEFORE = "2026-10-07T10:00:00-03:00"
+THIRTY_ONE_DAYS_BEFORE = "2026-09-16T10:00:00-03:00"
+
+
+class TestRuleRastroContaPagadoraRecente:
+    """Regra 7 — RASTRO.conta_pagadora_recente: quem paga acabou de abrir a conta?
+
+    Conta pagadora com menos de 30 dias mandando mais que o limite de
+    partida (R$ 1.000) para um destino novo: a laranja de segundo salto,
+    que recebe a vítima e repassa, ou a conta aberta com documento de
+    outra pessoa. Pontua `mule` abaixo do corte (30): reforça.
+    """
+
+    def test_new_payer_account_sending_above_the_starting_limit_scores_mule(self):
+        response = Scenario.send(payer_opening_date=TEN_DAYS_BEFORE, amount=150000, transaction_date=DAY)
+
+        reason = reason_for(response, "RASTRO.conta_pagadora_recente")
+        assert reason["typology"] == "mule"
+        assert reason["points"] > 0
+        assert reason["observed"]["payer_account_age_days"] == 10
+
+    def test_new_payer_account_at_the_starting_limit_passes(self):
+        response = Scenario.send(payer_opening_date=TEN_DAYS_BEFORE, amount=100000, transaction_date=DAY)
+
+        assert reason_for(response, "RASTRO.conta_pagadora_recente") is None
+        assert "RASTRO.conta_pagadora_recente" in response["metadata"]["passed"]
+
+    def test_payer_account_older_than_30_days_passes(self):
+        response = Scenario.send(payer_opening_date=THIRTY_ONE_DAYS_BEFORE, amount=150000, transaction_date=DAY)
+
+        assert reason_for(response, "RASTRO.conta_pagadora_recente") is None

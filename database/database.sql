@@ -390,6 +390,12 @@ CROSS JOIN (VALUES
     ('QUEM_OPERA.ip_compartilhado',
      '{"window_minutes": 60, "min_distinct_payers": 3, "points": 20}'),
 
+    -- Estimativa: conta pagadora com menos de 30 dias mandando acima do
+    -- limite de partida (R$ 1.000) para destino novo. Pontua conta laranja
+    -- abaixo do corte (30): reforça outro sinal de laranja.
+    ('RASTRO.conta_pagadora_recente',
+     '{"max_account_age_days": 30, "points": 30}'),
+
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
     -- diferentes: um sinal sozinho não é "risco claro".

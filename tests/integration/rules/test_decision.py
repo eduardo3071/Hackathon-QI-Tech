@@ -150,6 +150,7 @@ class TestDecisionLayers:
             "LIMITE.sem_geolocalizacao",
             "QUEM_OPERA.canal_incomum",
             "QUEM_OPERA.ip_compartilhado",
+            "RASTRO.conta_pagadora_recente",
         }
 
     def test_rejected_pix_is_recorded_and_consultable(self):
