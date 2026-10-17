@@ -10,6 +10,7 @@ NEW_ACCOUNT = "CONTA_RECEBEDORA.conta_nova"
 FAN_IN = "CONTA_RECEBEDORA.fan_in"
 PRIOR_SUSPICION = "CONTA_RECEBEDORA.suspeita_anterior"
 DORMANT = "CONTA_RECEBEDORA.dormente"
+SEVERAL_INSTITUTIONS = "CONTA_RECEBEDORA.varias_instituicoes"
 
 
 class ContaRecebedoraRule(BaseRule):
@@ -30,6 +31,7 @@ class ContaRecebedoraRule(BaseRule):
             FAN_IN: (1, self._evaluate_fan_in),
             PRIOR_SUSPICION: (1, self._evaluate_prior_suspicion),
             DORMANT: (2, self._evaluate_dormant),
+            SEVERAL_INSTITUTIONS: (2, self._evaluate_several_institutions),
         }
 
     def _evaluate_new_account(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> SignalResult:
@@ -209,6 +211,48 @@ class ContaRecebedoraRule(BaseRule):
             2,
             PASS,
             "Destino com movimento recente na nossa base, ou que o motor nunca viu receber.",
+            observed=observed,
+            threshold=threshold,
+        )
+
+    def _evaluate_several_institutions(
+        self, features: PixFeatures, parameters: dict, params: PolicyParameters
+    ) -> SignalResult:
+        """O mesmo CPF recebedor com contas novas em várias instituições: a laranja que abre contas em série.
+
+        O motor só conhece as contas que já apareceram como destino na
+        nossa base. Pontua `mule` abaixo do corte: reforça outro sinal.
+        """
+        if features.same_ownership:
+            return self.not_needed(SEVERAL_INSTITUTIONS, 2, "Mesma titularidade: as contas são do próprio pagador.")
+
+        if features.payee_type != Account.PERSON:
+            return self.not_needed(SEVERAL_INSTITUTIONS, 2, "Recebedor PJ: empresa tem contas em vários bancos.")
+
+        institutions = features.payee_new_account_institutions
+        min_institutions = parameters["min_institutions"]
+
+        observed = {"institutions": institutions}
+        threshold = {"min_institutions": min_institutions, "max_account_age_days": parameters["max_account_age_days"]}
+
+        if institutions >= min_institutions:
+            return self.result(
+                SEVERAL_INSTITUTIONS,
+                2,
+                WARN,
+                f"O recebedor abriu contas em {institutions} instituições diferentes nos últimos "
+                f"{parameters['max_account_age_days']} dias.",
+                typology=MULE,
+                points=parameters["points"],
+                observed=observed,
+                threshold=threshold,
+            )
+
+        return self.result(
+            SEVERAL_INSTITUTIONS,
+            2,
+            PASS,
+            f"Contas novas do recebedor em {institutions} instituição(ões) na nossa base.",
             observed=observed,
             threshold=threshold,
         )

@@ -177,3 +177,56 @@ class TestRuleContaRecebedoraDormente:
         response = Scenario.send(amount=15000, transaction_date=DAY)
 
         assert reason_for(response, "CONTA_RECEBEDORA.dormente") is None
+
+
+FIVE_DAYS_BEFORE = "2026-10-12T09:00:00-03:00"
+
+
+class TestRuleContaRecebedoraVariasInstituicoes:
+    """Regra 6 — CONTA_RECEBEDORA.varias_instituicoes: o recebedor abriu contas em vários bancos de uma vez?
+
+    O mesmo CPF recebedor com contas abertas há menos de 30 dias em 2 ou
+    mais instituições (ISPBs) diferentes: a laranja que abre contas em
+    série para receber de várias vítimas. O motor só conhece as contas que
+    já apareceram como destino na nossa base. Pontua `mule` abaixo do
+    corte: reforça.
+    """
+
+    def test_new_accounts_in_two_institutions_score_mule(self):
+        payee_document = RandomGenerator.generate_cpf()
+        Scenario.send(payee_document=payee_document, payee_participant="60701190", payee_opening_date=SEVEN_DAYS_BEFORE, transaction_date=DAY)
+
+        response = Scenario.send(
+            payee_document=payee_document,
+            payee_participant="18236120",
+            payee_opening_date=FIVE_DAYS_BEFORE,
+            transaction_date=shift_date(DAY, minutes=10),
+        )
+
+        reason = reason_for(response, "CONTA_RECEBEDORA.varias_instituicoes")
+        assert reason["typology"] == "mule"
+        assert reason["observed"]["institutions"] == 2
+
+    def test_second_institution_account_older_than_30_days_passes(self):
+        payee_document = RandomGenerator.generate_cpf()
+        Scenario.send(payee_document=payee_document, payee_participant="60701190", payee_opening_date=SEVEN_DAYS_BEFORE, transaction_date=DAY)
+
+        response = Scenario.send(
+            payee_document=payee_document,
+            payee_participant="18236120",
+            payee_opening_date=THIRTY_ONE_DAYS_BEFORE,
+            transaction_date=shift_date(DAY, minutes=10),
+        )
+
+        assert reason_for(response, "CONTA_RECEBEDORA.varias_instituicoes") is None
+        assert "CONTA_RECEBEDORA.varias_instituicoes" in response["metadata"]["passed"]
+
+    def test_two_new_accounts_in_the_same_institution_pass(self):
+        payee_document = RandomGenerator.generate_cpf()
+        Scenario.send(payee_document=payee_document, payee_opening_date=SEVEN_DAYS_BEFORE, transaction_date=DAY)
+
+        response = Scenario.send(
+            payee_document=payee_document, payee_opening_date=FIVE_DAYS_BEFORE, transaction_date=shift_date(DAY, minutes=10)
+        )
+
+        assert reason_for(response, "CONTA_RECEBEDORA.varias_instituicoes") is None

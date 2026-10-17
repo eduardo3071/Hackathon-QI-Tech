@@ -69,6 +69,7 @@ class PixFeatures:
     # Dias desde o último crédito aprovado que a conta destino recebeu NA
     # NOSSA BASE; None se o motor nunca a viu receber.
     payee_days_without_movement: Optional[int]
+    payee_new_account_institutions: Optional[int]
 
     # Regra 7 — rastro do dinheiro
     payer_recent_third_party_credits: Optional[int]

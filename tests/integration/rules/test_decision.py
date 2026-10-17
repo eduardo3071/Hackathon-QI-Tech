@@ -154,6 +154,7 @@ class TestDecisionLayers:
             "RITMO.fracionamento",
             "CONTA_RECEBEDORA.dormente",
             "RASTRO.proximidade_marcada",
+            "CONTA_RECEBEDORA.varias_instituicoes",
         }
 
     def test_rejected_pix_is_recorded_and_consultable(self):

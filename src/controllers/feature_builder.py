@@ -103,6 +103,9 @@ class FeatureBuilder:
                 pix, destination_account, params.of("CONTA_RECEBEDORA.suspeita_anterior")
             ),
             payee_days_without_movement=self._payee_days_without_movement(pix, destination_account),
+            payee_new_account_institutions=self._payee_new_account_institutions(
+                pix, params.of("CONTA_RECEBEDORA.varias_instituicoes")
+            ),
             payer_recent_third_party_credits=self._recent_third_party_credits(
                 pix, params.of("RASTRO.repasse_rapido")
             ),
@@ -333,4 +336,15 @@ class FeatureBuilder:
             AnalysisStatus.APPROVED,
             parameters["max_hops"],
             end - timedelta(days=marker_parameters["third_party_window_days"]),
+        )
+
+    def _payee_new_account_institutions(self, pix: dict, parameters):
+        """Em quantas instituições o recebedor abriu conta na janela — a conta destino deste Pix inclusa."""
+        if parameters is None:
+            return None
+
+        end = pix["transaction_date"]
+
+        return self.pix_feature_repository.count_institutions_with_accounts_opened(
+            pix["payee_document"], end - timedelta(days=parameters["max_account_age_days"]), end
         )

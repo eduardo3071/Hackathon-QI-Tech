@@ -415,6 +415,11 @@ CROSS JOIN (VALUES
     ('RASTRO.proximidade_marcada',
      '{"window_hours": 24, "reject_hops": 1, "max_hops": 2, "points": 30}'),
 
+    -- Estimativa: o mesmo CPF recebedor com contas abertas há menos de 30
+    -- dias em 2 ou mais ISPBs. Pontua conta laranja abaixo do corte (30).
+    ('CONTA_RECEBEDORA.varias_instituicoes',
+     '{"max_account_age_days": 30, "min_institutions": 2, "points": 30}'),
+
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
     -- diferentes: um sinal sozinho não é "risco claro".

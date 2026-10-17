@@ -274,3 +274,20 @@ class PixFeatureRepository:
                 or_(FraudMarker.origin == FraudMarker.OWN, FraudMarker.marked_at >= third_party_marked_since),
             )
         ).scalar()
+
+    def count_institutions_with_accounts_opened(self, owner_document: str, start: datetime, end: datetime) -> int:
+        """Em quantas instituições (ISPBs distintos) este documento tem conta aberta na janela.
+
+        Só as contas que o motor já viu como destino: a origem chega sem
+        ISPB, e a conta que nunca recebeu Pix na nossa base não existe aqui.
+        """
+        return (
+            self.session.query(func.count(func.distinct(Account.ispb)))
+            .filter(
+                Account.owner_document_number == owner_document,
+                Account.ispb.isnot(None),
+                Account.opening_date >= start,
+                Account.opening_date <= end,
+            )
+            .scalar()
+        )
