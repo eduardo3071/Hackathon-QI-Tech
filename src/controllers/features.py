@@ -53,6 +53,9 @@ class PixFeatures:
     payee_distinct_payers: Optional[int]
     payee_prior_scam_step_ups: Optional[int]
 
+    # Regra 7 — rastro do dinheiro
+    payer_recent_third_party_credits: Optional[int]
+
     @property
     def destination_recurring(self) -> bool:
         """Destino que este pagador já pagou — e nunca sob aviso de golpe.

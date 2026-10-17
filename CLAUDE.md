@@ -90,6 +90,8 @@ A decisão segue isso à risca:
      (ex.: conta nova + fan-in; conta nova + repasse rápido);
    - `RASTRO.proximidade_marcada` a 1 salto (Fase 3).
    Um sinal de conta laranja sozinho, por mais pontos que tenha, **não recusa**.
+   O repasse rápido (`RASTRO.repasse_rapido`) é sinal de conta laranja e pontua `mule`; ele NÃO recusa sozinho.
+   Sozinho leva a 2FA (`possible_scam`). Junto com outro sinal de laranja diferente, recusa pela regra dos dois sinais.
 4. **`two_factor_required`** quando há dúvida. O `metadata` diz POR QUE e COMO:
    - `step_up_reason: "account_takeover"` → `step_up_method: "face_liveness"`
      (aparelho não confiável, viagem impossível, fora da zona habitual, velocidade). SMS não serve: no SIM swap o fraudador

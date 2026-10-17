@@ -354,6 +354,13 @@ CROSS JOIN (VALUES
     ('CONTA_RECEBEDORA.suspeita_anterior',
      '{"window_days": 90, "points": 60}'),
 
+    -- Estimativa: o pagador recebeu de terceiros nos últimos 60 min e
+    -- repassa 80% ou mais disso. Pontua conta laranja no corte (60):
+    -- sozinho pede 2FA com aviso de golpe; com outro sinal de laranja,
+    -- recusa pela regra dos dois sinais.
+    ('RASTRO.repasse_rapido',
+     '{"window_minutes": 60, "min_forward_share_percent": 80, "points": 60}'),
+
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
     -- diferentes: um sinal sozinho não é "risco claro".

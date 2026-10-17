@@ -4,6 +4,7 @@ from controllers.rules.limite_rule import LimiteRule
 from controllers.rules.marcacao_rule import MarcacaoRule
 from controllers.rules.perfil_rule import PerfilRule
 from controllers.rules.policy_parameters import PolicyParameters
+from controllers.rules.rastro_rule import RastroRule
 from controllers.rules.ritmo_rule import RitmoRule
 from controllers.rules.signal_result import SignalResult
 
@@ -16,4 +17,5 @@ RULES = [
     RitmoRule(),
     PerfilRule(),
     ContaRecebedoraRule(),
+    RastroRule(),
 ]

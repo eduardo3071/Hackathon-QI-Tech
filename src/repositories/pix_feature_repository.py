@@ -141,3 +141,25 @@ class PixFeatureRepository:
             )
             .scalar()
         )
+
+    def sum_third_party_credits(self, document: str, start: datetime, end: datetime, status_enumerator: str) -> int:
+        """Quanto este documento recebeu de OUTROS documentos na janela, com o status pedido.
+
+        O cruzamento é pelo documento, e não pela conta: a conta de origem
+        chega sem ISPB, então "a conta que recebeu" e "a conta que agora
+        paga" só se encontram pela pessoa.
+        """
+        amount = (
+            self.session.query(func.coalesce(func.sum(PixTransaction.amount), 0))
+            .join(Analysis, Analysis.pix_transaction_id == PixTransaction.id)
+            .join(AnalysisStatus, AnalysisStatus.id == Analysis.status_id)
+            .filter(
+                PixTransaction.payee_document_number == document,
+                PixTransaction.payer_document_number != document,
+                PixTransaction.transaction_date >= start,
+                PixTransaction.transaction_date <= end,
+                AnalysisStatus.enumerator == status_enumerator,
+            )
+            .scalar()
+        )
+        return int(amount)

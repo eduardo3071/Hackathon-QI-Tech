@@ -90,6 +90,9 @@ class FeatureBuilder:
             payee_prior_scam_step_ups=self._prior_scam_step_ups(
                 pix, destination_account, params.of("CONTA_RECEBEDORA.suspeita_anterior")
             ),
+            payer_recent_third_party_credits=self._recent_third_party_credits(
+                pix, params.of("RASTRO.repasse_rapido")
+            ),
         )
 
     def _markers(self, document_number: str, transaction_date: datetime) -> list:
@@ -211,4 +214,15 @@ class FeatureBuilder:
 
         return self.pix_feature_repository.count_step_ups(
             pix["payer_document"], destination_account.id, window_start, pix["transaction_date"], STEP_UP_POSSIBLE_SCAM
+        )
+
+    def _recent_third_party_credits(self, pix: dict, parameters):
+        """Quanto o pagador recebeu de terceiros, aprovado, na janela que antecede este Pix."""
+        if parameters is None:
+            return None
+
+        window_start = pix["transaction_date"] - timedelta(minutes=parameters["window_minutes"])
+
+        return self.pix_feature_repository.sum_third_party_credits(
+            pix["payer_document"], window_start, pix["transaction_date"], AnalysisStatus.APPROVED
         )
