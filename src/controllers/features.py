@@ -72,6 +72,9 @@ class PixFeatures:
 
     # Regra 7 — rastro do dinheiro
     payer_recent_third_party_credits: Optional[int]
+    # Saltos até o documento com marcação mais próximo que mandou dinheiro
+    # (direta ou indiretamente) ao recebedor na janela; None se nenhum.
+    payee_marked_sender_hop: Optional[int]
 
     @property
     def destination_recurring(self) -> bool:

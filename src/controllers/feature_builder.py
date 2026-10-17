@@ -106,6 +106,9 @@ class FeatureBuilder:
             payer_recent_third_party_credits=self._recent_third_party_credits(
                 pix, params.of("RASTRO.repasse_rapido")
             ),
+            payee_marked_sender_hop=self._marked_sender_hop(
+                pix, params.of("RASTRO.proximidade_marcada"), params.of("MARCACAO.lista")
+            ),
         )
 
     def _markers(self, document_number: str, transaction_date: datetime) -> list:
@@ -311,3 +314,23 @@ class FeatureBuilder:
             return None
 
         return (pix["transaction_date"] - last_credit_at).days
+
+    def _marked_sender_hop(self, pix: dict, parameters, marker_parameters):
+        """A quantos saltos o recebedor está de quem tem marcação de fraude vigente.
+
+        "Vigente" é o mesmo da Regra 1: a marcação própria sempre; a de
+        outro PSP, dentro da janela do DICT.
+        """
+        if parameters is None or marker_parameters is None:
+            return None
+
+        end = pix["transaction_date"]
+
+        return self.pix_feature_repository.nearest_marked_sender_hop(
+            pix["payee_document"],
+            end - timedelta(hours=parameters["window_hours"]),
+            end,
+            AnalysisStatus.APPROVED,
+            parameters["max_hops"],
+            end - timedelta(days=marker_parameters["third_party_window_days"]),
+        )

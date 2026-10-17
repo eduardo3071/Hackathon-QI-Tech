@@ -47,8 +47,9 @@ class DecisionMaker:
     risco é claro"; 2FA é "fricção só onde há dúvida". Por isso:
 
       • `rejected` só com evidência dura — marcação de fraude, conta sendo
-        esvaziada (velocidade no corte de recusa), ou conta laranja vista
-        por DOIS sinais diferentes. Um sinal de laranja sozinho, por mais
+        esvaziada (velocidade no corte de recusa), recebedor pago por conta
+        marcada nas últimas 24 h, ou conta laranja vista por DOIS sinais
+        diferentes. Um sinal de laranja sozinho, por mais
         pontos que tenha, é dúvida: pode ser o vendedor de carro usado que
         acabou de abrir conta;
       • `two_factor_required` quando há dúvida, dizendo POR QUE e COMO;
@@ -79,6 +80,11 @@ class DecisionMaker:
             return Decision(AnalysisStatus.REJECTED, FRAUD_MARKER, BLOCK, scores)
 
         if mule_above_cut and len(mule_signals) >= cuts["mule_min_distinct_signals"]:
+            return Decision(AnalysisStatus.REJECTED, MULE_ACCOUNT, BLOCK, scores)
+
+        # Recusa dura de conta laranja (proximidade de conta marcada a 1
+        # salto) tem a tipologia dela; a que sobra é a conta sendo esvaziada.
+        if any(result.typology == MULE for result in hard_rejects):
             return Decision(AnalysisStatus.REJECTED, MULE_ACCOUNT, BLOCK, scores)
 
         if hard_rejects:

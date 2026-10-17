@@ -408,6 +408,13 @@ CROSS JOIN (VALUES
     ('CONTA_RECEBEDORA.dormente',
      '{"min_days_without_movement": 60, "points": 30}'),
 
+    -- Estimativa: nas últimas 24 h, o recebedor (PF) recebeu de documento
+    -- com marcação vigente. A 1 salto recusa (evidência dura); a 2 saltos
+    -- pontua conta laranja abaixo do corte (30). Consulta recursiva
+    -- limitada a 2 saltos.
+    ('RASTRO.proximidade_marcada',
+     '{"window_hours": 24, "reject_hops": 1, "max_hops": 2, "points": 30}'),
+
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
     -- diferentes: um sinal sozinho não é "risco claro".

@@ -1,10 +1,10 @@
 from datetime import datetime
 from typing import List, Optional, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import func, literal, or_, select
 
 from database import Context
-from models import Account, Analysis, AnalysisStatus, PixTransaction
+from models import Account, Analysis, AnalysisStatus, FraudMarker, PixTransaction
 
 
 class PixFeatureRepository:
@@ -219,3 +219,58 @@ class PixFeatureRepository:
             )
             .scalar()
         )
+
+    def nearest_marked_sender_hop(
+        self,
+        payee_document: str,
+        start: datetime,
+        end: datetime,
+        status_enumerator: str,
+        max_hops: int,
+        third_party_marked_since: datetime,
+    ) -> Optional[int]:
+        """A quantos saltos deste recebedor está o documento marcado mais próximo, ou None.
+
+        Consulta recursiva sobre os Pix com o status pedido na janela:
+        salto 1 são os documentos que pagaram o recebedor; salto 2, os que
+        pagaram esses — e assim até `max_hops`. Um documento conta como
+        marcado se tem marcação vigente em `end`: a própria sempre, a de
+        outro PSP só se feita depois de `third_party_marked_since` (a
+        janela do DICT, que o controller calcula).
+        """
+        edges = (
+            select(
+                PixTransaction.payer_document_number.label("payer"),
+                PixTransaction.payee_document_number.label("payee"),
+            )
+            .join(Analysis, Analysis.pix_transaction_id == PixTransaction.id)
+            .join(AnalysisStatus, AnalysisStatus.id == Analysis.status_id)
+            .where(
+                PixTransaction.transaction_date >= start,
+                PixTransaction.transaction_date <= end,
+                PixTransaction.payer_document_number != PixTransaction.payee_document_number,
+                AnalysisStatus.enumerator == status_enumerator,
+            )
+            .cte("edges")
+        )
+
+        senders = (
+            select(edges.c.payer.label("document"), literal(1).label("hop"))
+            .where(edges.c.payee == payee_document)
+            .cte("senders", recursive=True)
+        )
+        senders = senders.union(
+            select(edges.c.payer, senders.c.hop + 1)
+            .join(senders, edges.c.payee == senders.c.document)
+            .where(senders.c.hop < max_hops)
+        )
+
+        return self.session.execute(
+            select(func.min(senders.c.hop))
+            .join(FraudMarker, FraudMarker.document_number == senders.c.document)
+            .where(
+                FraudMarker.marked_at <= end,
+                FraudMarker.valid_until > end,
+                or_(FraudMarker.origin == FraudMarker.OWN, FraudMarker.marked_at >= third_party_marked_since),
+            )
+        ).scalar()

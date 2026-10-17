@@ -153,6 +153,7 @@ class TestDecisionLayers:
             "RASTRO.conta_pagadora_recente",
             "RITMO.fracionamento",
             "CONTA_RECEBEDORA.dormente",
+            "RASTRO.proximidade_marcada",
         }
 
     def test_rejected_pix_is_recorded_and_consultable(self):
