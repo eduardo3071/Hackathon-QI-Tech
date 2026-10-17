@@ -94,6 +94,8 @@ class FeatureBuilder:
             channel_used_before=self._channel_used_before(pix, params.of("QUEM_OPERA.canal_incomum")),
             last_location_distance_km=last_location["distance_km"],
             last_location_hours=last_location["hours"],
+            zone_known_locations=len(profile.recent_locations) if profile is not None else 0,
+            zone_nearest_km=self._zone_nearest_km(pix, profile),
             payee_account_age_days=max(0, (transaction_date - destination_account.opening_date).days),
             payee_prior_approved_credits=self.pix_feature_repository.count_credits(
                 destination_account.id, AnalysisStatus.APPROVED
@@ -348,3 +350,15 @@ class FeatureBuilder:
         return self.pix_feature_repository.count_institutions_with_accounts_opened(
             pix["payee_document"], end - timedelta(days=parameters["max_account_age_days"]), end
         )
+
+    def _zone_nearest_km(self, pix: dict, profile):
+        """A distância deste Pix até o local conhecido mais próximo do pagador."""
+        if pix["latitude"] is None or profile is None or not profile.recent_locations:
+            return None
+
+        distances = [
+            haversine_km(location["latitude"], location["longitude"], float(pix["latitude"]), float(pix["longitude"]))
+            for location in profile.recent_locations
+        ]
+
+        return round(min(distances), 3)

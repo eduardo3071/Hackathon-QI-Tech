@@ -60,6 +60,10 @@ class PixFeatures:
     # As horas podem ser zero ou negativas (Pix que chegou fora de ordem).
     last_location_distance_km: Optional[float]
     last_location_hours: Optional[float]
+    # Zona habitual: quantos locais de Pix aprovados o perfil conhece, e a
+    # distância deste Pix até o mais próximo deles (None sem geolocalização).
+    zone_known_locations: int
+    zone_nearest_km: Optional[float]
 
     # Regra 6 — conta recebedora
     payee_account_age_days: int

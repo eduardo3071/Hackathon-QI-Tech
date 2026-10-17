@@ -238,3 +238,58 @@ class TestRuleQuemOperaIpCompartilhado:
 
         assert reason_for(response, "QUEM_OPERA.ip_compartilhado") is None
         assert "QUEM_OPERA.ip_compartilhado" in response["metadata"]["passed"]
+
+
+RIO_DE_JANEIRO = {"latitude": -22.91, "longitude": -43.17}  # ~360 km de São Paulo
+
+
+def payer_living_in_sao_paulo(history_size: int = 5) -> dict:
+    """Pagador com `history_size` Pix aprovados de R$ 100 saídos de São Paulo, um por dia, do mesmo aparelho."""
+    context = {"payer_document": RandomGenerator.generate_cpf(), "device_id": new_device()}
+    Scenario.build_history(**context, amounts=[10000] * history_size, first_date="2026-09-20T14:00:00-03:00")
+
+    return context
+
+
+class TestRuleQuemOperaForaDaZona:
+    """Regra 5 — QUEM_OPERA.fora_da_zona: o Pix sai de onde o titular costuma estar?
+
+    O perfil guarda os locais dos últimos 20 Pix aprovados. Um Pix a mais
+    de 50 km de todos eles, acima de R$ 500, pede biometria — a ideia do
+    Modo Rua do Nubank: fora da zona de costume, valor alto pede prova de
+    quem opera. Com menos de 5 locais conhecidos, não há zona.
+    """
+
+    def test_far_from_every_usual_place_above_500_requires_face_liveness(self):
+        context = payer_living_in_sao_paulo()
+
+        response = Scenario.send(**context, geolocation=RIO_DE_JANEIRO, amount=60000, transaction_date=DAY)
+
+        assert response["status"] == "two_factor_required"
+        assert response["metadata"]["step_up_reason"] == "account_takeover"
+        assert response["metadata"]["step_up_method"] == "face_liveness"
+        reason = reason_for(response, "QUEM_OPERA.fora_da_zona")
+        assert reason["outcome"] == "two_factor"
+        assert reason["observed"]["nearest_km"] > 50
+
+    def test_far_from_every_usual_place_at_500_passes(self):
+        context = payer_living_in_sao_paulo()
+
+        response = Scenario.send(**context, geolocation=RIO_DE_JANEIRO, amount=50000, transaction_date=DAY)
+
+        assert reason_for(response, "QUEM_OPERA.fora_da_zona") is None
+        assert "QUEM_OPERA.fora_da_zona" in response["metadata"]["passed"]
+
+    def test_inside_the_usual_zone_passes(self):
+        context = payer_living_in_sao_paulo()
+
+        response = Scenario.send(**context, geolocation=SAO_PAULO_NEARBY, amount=60000, transaction_date=DAY)
+
+        assert reason_for(response, "QUEM_OPERA.fora_da_zona") is None
+
+    def test_fewer_than_5_known_places_is_not_evaluated(self):
+        context = payer_living_in_sao_paulo(history_size=4)
+
+        response = Scenario.send(**context, geolocation=RIO_DE_JANEIRO, amount=60000, transaction_date=DAY)
+
+        assert "QUEM_OPERA.fora_da_zona" in not_evaluated_signals(response)

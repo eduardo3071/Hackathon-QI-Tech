@@ -2,13 +2,14 @@ from controllers.features import PixFeatures
 from controllers.rules.base_rule import BaseRule
 from controllers.rules.perfil_rule import VALUE as PROFILE_VALUE
 from controllers.rules.policy_parameters import PolicyParameters
-from controllers.rules.signal_result import ATO, MULE, NOT_EVALUATED, PASS, WARN, SignalResult
+from controllers.rules.signal_result import ATO, MULE, NOT_EVALUATED, PASS, TWO_FACTOR, WARN, SignalResult
 from utils.money import format_brl
 
 SHARED_DEVICE = "QUEM_OPERA.aparelho_compartilhado"
 IMPOSSIBLE_TRAVEL = "QUEM_OPERA.viagem_impossivel"
 UNUSUAL_CHANNEL = "QUEM_OPERA.canal_incomum"
 SHARED_IP = "QUEM_OPERA.ip_compartilhado"
+OUT_OF_ZONE = "QUEM_OPERA.fora_da_zona"
 
 
 class QuemOperaRule(BaseRule):
@@ -28,6 +29,7 @@ class QuemOperaRule(BaseRule):
             UNUSUAL_CHANNEL: (1, self._evaluate_unusual_channel),
             SHARED_DEVICE: (2, self._evaluate_shared_device),
             SHARED_IP: (2, self._evaluate_shared_ip),
+            OUT_OF_ZONE: (2, self._evaluate_out_of_zone),
         }
 
     def _evaluate_shared_device(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> SignalResult:
@@ -223,6 +225,55 @@ class QuemOperaRule(BaseRule):
             2,
             PASS,
             f"{distinct_payers} CPF(s) pagador(es) neste IP na janela, ou aparelho confiável.",
+            observed=observed,
+            threshold=threshold,
+        )
+
+    def _evaluate_out_of_zone(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> SignalResult:
+        """Longe de todos os lugares de onde o titular costuma pagar, e acima de R$ 500: biometria.
+
+        A ideia do Modo Rua do Nubank: fora da zona habitual, valor alto
+        pede prova de quem opera. Pede 2FA (`face_liveness`) e nunca recusa:
+        quem viaja de férias faz Pix de longe. Sem geolocalização, ou com
+        menos de 5 locais conhecidos, não há zona: `not_evaluated`.
+        """
+        radius_km = parameters["radius_km"]
+        min_amount = parameters["min_amount"]
+        min_locations = parameters["min_known_locations"]
+        threshold = {"radius_km": radius_km, "min_amount": min_amount, "min_known_locations": min_locations}
+
+        if features.zone_nearest_km is None and not features.has_geolocation:
+            return self.result(OUT_OF_ZONE, 2, NOT_EVALUATED, "Pix sem geolocalização.", threshold=threshold)
+
+        observed = {"known_locations": features.zone_known_locations, "nearest_km": features.zone_nearest_km}
+
+        if features.zone_known_locations < min_locations:
+            return self.result(
+                OUT_OF_ZONE,
+                2,
+                NOT_EVALUATED,
+                f"Só {features.zone_known_locations} local(is) de Pix aprovados conhecidos: ainda não há zona habitual.",
+                observed=observed,
+                threshold=threshold,
+            )
+
+        if features.zone_nearest_km > radius_km and features.amount > min_amount:
+            return self.result(
+                OUT_OF_ZONE,
+                2,
+                TWO_FACTOR,
+                f"Pix de {format_brl(features.amount)} a {features.zone_nearest_km:.0f} km do lugar mais próximo de onde "
+                "o titular costuma pagar.",
+                typology=ATO,
+                observed=observed,
+                threshold=threshold,
+            )
+
+        return self.result(
+            OUT_OF_ZONE,
+            2,
+            PASS,
+            "Dentro da zona habitual, ou valor até o limite fora dela.",
             observed=observed,
             threshold=threshold,
         )

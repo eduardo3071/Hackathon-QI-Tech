@@ -236,6 +236,10 @@ CREATE TABLE payer_profile(
     recent_approved                 JSONB NOT NULL,
     approved_count                  INTEGER NOT NULL,
     max_night_approved_amount       BIGINT NOT NULL,
+    -- Os locais dos últimos 20 Pix aprovados com geolocalização, como
+    -- [{"latitude": -23.56, "longitude": -46.65, "at": "..."}]: a zona
+    -- habitual do QUEM_OPERA.fora_da_zona.
+    recent_locations                JSONB NOT NULL,
     last_latitude                   NUMERIC(9, 6),
     last_longitude                  NUMERIC(9, 6),
     last_geolocation_at             TIMESTAMPTZ,
@@ -419,6 +423,12 @@ CROSS JOIN (VALUES
     -- dias em 2 ou mais ISPBs. Pontua conta laranja abaixo do corte (30).
     ('CONTA_RECEBEDORA.varias_instituicoes',
      '{"max_account_age_days": 30, "min_institutions": 2, "points": 30}'),
+
+    -- Estimativa (inspiração no Modo Rua do Nubank): Pix a mais de 50 km
+    -- de todos os locais dos últimos 20 Pix aprovados, acima de R$ 500,
+    -- pede biometria. Exige pelo menos 5 locais conhecidos.
+    ('QUEM_OPERA.fora_da_zona',
+     '{"radius_km": 50, "min_amount": 50000, "min_known_locations": 5}'),
 
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
