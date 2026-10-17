@@ -42,6 +42,7 @@ Entrega: link do repositório no Slack (grupo da final) até **domingo 18/10, 12
   | Exemplo do slide: R$ 1.500 às 22h15, conta pagadora de 2025-03-02, destino aberto há 7 dias, pagador sem histórico no motor | `two_factor_required` com aviso de golpe |
   | Primeiro Pix de um cliente desconhecido pelo motor, conta pagadora antiga, R$ 300 às 14h para conta antiga | `approved` |
   | Mesmo cliente desconhecido, R$ 1.500 às 14h para conta antiga | `two_factor_required` |
+  | Período de aprendizado: R$ 300; R$ 800 dez minutos depois; R$ 300 no dia seguinte, do mesmo aparelho novo | `approved`; `two_factor_required` (teto diário); `approved` |
   | Celular roubado: aparelho novo faz Pix de R$ 10 (aprovado) e, 3 minutos depois, R$ 5.000 para destino novo | o segundo é `two_factor_required` com `face_liveness` |
   | Carro usado: cliente com histórico paga R$ 35.000 de dia a conta aberta há 20 dias (primeiro crédito) | `two_factor_required` com aviso de golpe (não `rejected`) |
   | Conta laranja: conta PF aberta há 10 dias recebe Pix de R$ 300 de 5 pagadores distintos em 1 h | o 5º é `rejected` (conta nova + fan-in) |
@@ -167,12 +168,16 @@ pode ser nulo, `to_status_id`, `event_datetime`, `created_at`). Toda análise gr
 - Por quê: sem ele, a vítima que confirmou o golpe e paga o mesmo golpista no dia seguinte saía `approved` com `warn`
   (o crédito confirmado tira a conta do "primeiro crédito" da `conta_nova`, e o placar `app` ficava na faixa de aviso).
 
-## Cliente que o motor ainda não conhece (NOVO — banco vazio na avaliação)
+## Cliente que o motor ainda não conhece — período de aprendizado (REVISADO — banco vazio na avaliação)
 
-- "Desconhecido" = nenhum Pix desse pagador gravado no motor.
-- Se a conta pagadora (`source_account.opening_date`) tem **pelo menos 180 dias**: o aparelho não pede 2FA até o
-  limite de partida (`PERFIL.valor.fallback_amount`, R$ 1.000). O sinal de aparelho sai `not_evaluated` com a mensagem
-  "o motor ainda não tem histórico deste pagador". Acima do limite de partida → 2FA (`face_liveness`).
+- O alívio vale **enquanto o pagador não tiver nenhum aparelho confiável** (e não só no primeiro Pix). Quando algum
+  aparelho dele fica confiável, o período acaba: um aparelho novo daí em diante é o caso do celular roubado, e volta
+  aos R$ 200 por Pix.
+- Se a conta pagadora (`source_account.opening_date`) tem **pelo menos 180 dias**: o limite por Pix do aparelho não
+  confiável é o limite de partida (`PERFIL.valor.fallback_amount`, R$ 1.000), em vez dos R$ 200, **respeitando o teto
+  do BCB de R$ 1.000 por dia** somando os Pix aprovados de aparelhos não confiáveis. Dentro dos dois, o sinal de
+  aparelho sai `not_evaluated` com a mensagem "o motor ainda não tem histórico deste pagador". Acima de qualquer um
+  → 2FA (`face_liveness`).
 - Se a conta pagadora tem menos de 180 dias: regra normal de aparelho não confiável.
 - Explicar no README: em produção o motor nasce com a carga do histórico; isto evita tratar todo cliente como fraude
   no primeiro dia, sem abrir mão do limite.

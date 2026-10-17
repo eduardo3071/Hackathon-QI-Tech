@@ -33,6 +33,7 @@ class PixFeatures:
     payer_known: bool
     payer_account_age_days: int
     device_trusted: bool
+    payer_has_trusted_device: bool
     untrusted_devices_day_amount: Optional[int]
     is_night: Optional[bool]
     night_person_to_person_amount: Optional[int]

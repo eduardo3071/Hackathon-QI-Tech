@@ -78,20 +78,38 @@ class TestRuleLimiteConfiancaDoAparelho:
     Fecha a brecha do Pix pequeno: sem isso, um Pix de R$ 10 aprovado
     tornava o aparelho do ladrão "conhecido", e o Pix seguinte, de
     R$ 5.000, não pedia 2FA nenhum.
+
+    Os pagadores daqui têm conta de menos de 180 dias: com conta antiga e
+    sem aparelho confiável, estariam no período de aprendizado (limite de
+    partida de R$ 1.000), e o teste deixaria de olhar os R$ 200.
     """
+
+    RECENT_ACCOUNT = "2026-06-01T10:00:00-03:00"
 
     def _two_pix(self, payer: str, device: str, first_date: str, second_date: str) -> None:
         for transaction_date in (first_date, second_date):
-            response = Scenario.send(payer_document=payer, device_id=device, amount=1000, transaction_date=transaction_date)
+            response = Scenario.send(
+                payer_document=payer,
+                device_id=device,
+                payer_opening_date=self.RECENT_ACCOUNT,
+                amount=1000,
+                transaction_date=transaction_date,
+            )
             assert response["status"] == "approved", response
 
     def test_one_small_pix_does_not_make_the_device_trusted(self):
         payer = RandomGenerator.generate_cpf()
         device = new_device()
-        Scenario.send(payer_document=payer, device_id=device, amount=1000, transaction_date=DAY)
+        Scenario.send(
+            payer_document=payer, device_id=device, payer_opening_date=self.RECENT_ACCOUNT, amount=1000, transaction_date=DAY
+        )
 
         response = Scenario.send(
-            payer_document=payer, device_id=device, amount=30000, transaction_date=shift_date(DAY, minutes=3)
+            payer_document=payer,
+            device_id=device,
+            payer_opening_date=self.RECENT_ACCOUNT,
+            amount=30000,
+            transaction_date=shift_date(DAY, minutes=3),
         )
 
         assert response["status"] == "two_factor_required"
@@ -102,7 +120,9 @@ class TestRuleLimiteConfiancaDoAparelho:
         device = new_device()
         self._two_pix(payer, device, shift_date(DAY, hours=-23, minutes=-59), shift_date(DAY, hours=-1))
 
-        response = Scenario.send(payer_document=payer, device_id=device, amount=30000, transaction_date=DAY)
+        response = Scenario.send(
+            payer_document=payer, device_id=device, payer_opening_date=self.RECENT_ACCOUNT, amount=30000, transaction_date=DAY
+        )
 
         assert response["status"] == "two_factor_required"
 
@@ -142,13 +162,15 @@ class TestRuleLimiteConfiancaDoAparelho:
 
 
 class TestRuleLimiteClienteDesconhecido:
-    """Cliente que o motor ainda não conhece: nenhum Pix dele gravado.
+    """Cliente que o motor ainda não conhece: o período de aprendizado.
 
     Na avaliação o banco nasce vazio, e todo cliente chega num aparelho
-    "novo". Se a conta pagadora tem 180 dias ou mais, o aparelho não pede
-    2FA até o limite de partida do perfil (R$ 1.000): em produção o motor
-    nasceria com a carga do histórico. Conta pagadora recente segue a
-    regra normal de aparelho não confiável.
+    "novo". Enquanto o pagador não tem nenhum aparelho confiável, e se a
+    conta pagadora tem 180 dias ou mais, o limite por Pix do aparelho é o
+    limite de partida do perfil (R$ 1.000), e não os R$ 200 — sempre
+    dentro do teto do BCB de R$ 1.000 por dia em aparelhos não
+    confiáveis. Em produção o motor nasceria com a carga do histórico.
+    Conta pagadora recente segue a regra normal de aparelho não confiável.
     """
 
     OLD_ACCOUNT = "2025-03-02T10:00:00-03:00"
@@ -181,16 +203,36 @@ class TestRuleLimiteClienteDesconhecido:
         assert response["status"] == "two_factor_required"
         assert reason_for(response, "LIMITE.aparelho_nao_cadastrado")["outcome"] == "two_factor"
 
-    def test_after_the_first_pix_the_client_is_known(self):
-        """Um Pix gravado basta para o motor conhecer o cliente: o seguinte, de outro aparelho, segue a regra normal."""
-        payer = RandomGenerator.generate_cpf()
-        Scenario.send(payer_document=payer, payer_opening_date=self.OLD_ACCOUNT, amount=1000, transaction_date=DAY)
+    def test_learning_period_lasts_while_no_device_is_trusted(self):
+        """R$ 300 aprovado; R$ 800 dez minutos depois passa do teto diário (2FA); R$ 300 no dia seguinte, aprovado.
 
-        response = Scenario.send(
-            payer_document=payer, payer_opening_date=self.OLD_ACCOUNT, amount=30000, transaction_date=shift_date(DAY, hours=1)
-        )
+        O alívio não acaba no primeiro Pix: dura enquanto o aparelho do
+        pagador não é confiável. O que o limita é o teto do BCB de R$ 1.000
+        por dia em aparelhos não confiáveis.
+        """
+        context = {"payer_document": RandomGenerator.generate_cpf(), "device_id": new_device()}
+
+        first = Scenario.send(**context, amount=30000, transaction_date=DAY)
+        second = Scenario.send(**context, amount=80000, transaction_date=shift_date(DAY, minutes=10))
+        third = Scenario.send(**context, amount=30000, transaction_date=shift_date(DAY, days=1))
+
+        assert first["status"] == "approved"
+        assert second["status"] == "two_factor_required"
+        second_reason = reason_for(second, "LIMITE.aparelho_nao_cadastrado")
+        assert second_reason["outcome"] == "two_factor"
+        assert second_reason["observed"]["day_amount"] == 110000
+        assert third["status"] == "approved"
+
+    def test_learning_period_ends_once_the_payer_has_a_trusted_device(self):
+        """Cliente com aparelho confiável: um aparelho novo volta aos R$ 200 — é o celular roubado."""
+        payer = RandomGenerator.generate_cpf()
+        Scenario.register_device(payer, new_device(), shift_date(DAY, hours=-1))
+
+        response = Scenario.send(payer_document=payer, device_id=new_device(), amount=30000, transaction_date=DAY)
 
         assert response["status"] == "two_factor_required"
+        reason = reason_for(response, "LIMITE.aparelho_nao_cadastrado")
+        assert reason["threshold"]["max_amount_per_pix"] == 20000
 
 
 class TestRuleLimiteNoturno:

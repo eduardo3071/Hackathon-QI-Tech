@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from database import Context
 from models import DeviceOwner
@@ -15,6 +15,10 @@ class DeviceOwnerRepository:
             .filter(DeviceOwner.device_id == device_id, DeviceOwner.document_number == document_number)
             .first()
         )
+
+    def list_by_document(self, document_number: str) -> List[DeviceOwner]:
+        """Todos os aparelhos de onde este documento já pagou."""
+        return self.session.query(DeviceOwner).filter(DeviceOwner.document_number == document_number).all()
 
     def register_attempt(self, device_id: int, document_number: str, seen_at: datetime) -> DeviceOwner:
         device_owner = self.get(device_id, document_number)
