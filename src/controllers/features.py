@@ -66,6 +66,9 @@ class PixFeatures:
     payee_prior_approved_credits: int
     payee_distinct_payers: Optional[int]
     payee_prior_scam_step_ups: Optional[int]
+    # Dias desde o último crédito aprovado que a conta destino recebeu NA
+    # NOSSA BASE; None se o motor nunca a viu receber.
+    payee_days_without_movement: Optional[int]
 
     # Regra 7 — rastro do dinheiro
     payer_recent_third_party_credits: Optional[int]

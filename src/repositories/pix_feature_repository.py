@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from sqlalchemy import func
 
@@ -205,3 +205,17 @@ class PixFeatureRepository:
             .all()
         )
         return [row.payer_document_number for row in rows]
+
+    def last_credit_before(self, destination_account_id: int, before: datetime, status_enumerator: str) -> Optional[datetime]:
+        """A data do último Pix, com o status pedido, que esta conta recebeu ANTES de `before`."""
+        return (
+            self.session.query(func.max(PixTransaction.transaction_date))
+            .join(Analysis, Analysis.pix_transaction_id == PixTransaction.id)
+            .join(AnalysisStatus, AnalysisStatus.id == Analysis.status_id)
+            .filter(
+                PixTransaction.destination_account_id == destination_account_id,
+                PixTransaction.transaction_date < before,
+                AnalysisStatus.enumerator == status_enumerator,
+            )
+            .scalar()
+        )

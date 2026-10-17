@@ -402,6 +402,12 @@ CROSS JOIN (VALUES
     ('RASTRO.conta_pagadora_recente',
      '{"max_account_age_days": 30, "points": 30}'),
 
+    -- Estimativa: destino que reaparece depois de 60 dias sem movimento na
+    -- nossa base (o motor não vê outros bancos). Pontua conta laranja
+    -- abaixo do corte (30): reforça outro sinal de laranja.
+    ('CONTA_RECEBEDORA.dormente',
+     '{"min_days_without_movement": 60, "points": 30}'),
+
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
     -- diferentes: um sinal sozinho não é "risco claro".

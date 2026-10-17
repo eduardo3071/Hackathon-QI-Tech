@@ -132,3 +132,48 @@ class TestRuleContaRecebedoraFanIn:
         assert responses[4]["status"] == "rejected"
         assert responses[4]["metadata"]["typology"] == "mule_account"
         assert responses[4]["metadata"]["scores"]["mule"] == 60
+
+
+def payee_credited_at(transaction_date: str) -> dict:
+    """Uma conta destino que o motor viu receber um Pix aprovado em `transaction_date`."""
+    payee = {
+        "payee_document": RandomGenerator.generate_cpf(),
+        "payee_account_number": RandomGenerator.generate_account_number(),
+    }
+    response = Scenario.send(**payee, amount=10000, transaction_date=transaction_date)
+    assert response["status"] == "approved", response
+
+    return payee
+
+
+class TestRuleContaRecebedoraDormente:
+    """Regra 6 — CONTA_RECEBEDORA.dormente: destino que reaparece depois de 60 dias sem movimento na nossa base.
+
+    A conta laranja alugada costuma ser uma conta antiga, parada, que
+    volta a receber de repente. O motor só sabe que a conta ficou parada
+    NA NOSSA BASE — ela pode ter movimentado em outro banco. Pontua
+    `mule` abaixo do corte: reforça outro sinal de laranja.
+    """
+
+    def test_destination_back_after_60_days_scores_mule(self):
+        payee = payee_credited_at(shift_date(DAY, days=-61))
+
+        response = Scenario.send(**payee, amount=15000, transaction_date=DAY)
+
+        reason = reason_for(response, "CONTA_RECEBEDORA.dormente")
+        assert reason["typology"] == "mule"
+        assert reason["points"] > 0
+        assert reason["observed"]["days_without_movement"] == 61
+
+    def test_destination_back_after_59_days_passes(self):
+        payee = payee_credited_at(shift_date(DAY, days=-59))
+
+        response = Scenario.send(**payee, amount=15000, transaction_date=DAY)
+
+        assert reason_for(response, "CONTA_RECEBEDORA.dormente") is None
+        assert "CONTA_RECEBEDORA.dormente" in response["metadata"]["passed"]
+
+    def test_destination_never_seen_receiving_passes(self):
+        response = Scenario.send(amount=15000, transaction_date=DAY)
+
+        assert reason_for(response, "CONTA_RECEBEDORA.dormente") is None

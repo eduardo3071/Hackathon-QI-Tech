@@ -152,6 +152,7 @@ class TestDecisionLayers:
             "QUEM_OPERA.ip_compartilhado",
             "RASTRO.conta_pagadora_recente",
             "RITMO.fracionamento",
+            "CONTA_RECEBEDORA.dormente",
         }
 
     def test_rejected_pix_is_recorded_and_consultable(self):

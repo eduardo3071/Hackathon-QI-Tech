@@ -9,6 +9,7 @@ from models import Account
 NEW_ACCOUNT = "CONTA_RECEBEDORA.conta_nova"
 FAN_IN = "CONTA_RECEBEDORA.fan_in"
 PRIOR_SUSPICION = "CONTA_RECEBEDORA.suspeita_anterior"
+DORMANT = "CONTA_RECEBEDORA.dormente"
 
 
 class ContaRecebedoraRule(BaseRule):
@@ -28,6 +29,7 @@ class ContaRecebedoraRule(BaseRule):
             NEW_ACCOUNT: (1, self._evaluate_new_account),
             FAN_IN: (1, self._evaluate_fan_in),
             PRIOR_SUSPICION: (1, self._evaluate_prior_suspicion),
+            DORMANT: (2, self._evaluate_dormant),
         }
 
     def _evaluate_new_account(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> SignalResult:
@@ -168,6 +170,45 @@ class ContaRecebedoraRule(BaseRule):
             1,
             PASS,
             "Sem suspeita de golpe anterior para esta conta, ou valor dentro do perfil.",
+            observed=observed,
+            threshold=threshold,
+        )
+
+    def _evaluate_dormant(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> SignalResult:
+        """Destino que reaparece depois de 60 dias sem movimento na nossa base.
+
+        A conta laranja alugada costuma ser antiga e parada, e volta a
+        receber de repente. O motor só sabe que ela ficou parada NA NOSSA
+        BASE: pode ter movimentado em outro banco. Por isso pontua `mule`
+        abaixo do corte — reforça outro sinal de laranja, não decide só.
+        Conta que o motor nunca viu receber não "reaparece".
+        """
+        if features.same_ownership:
+            return self.not_needed(DORMANT, 2, "Mesma titularidade: a conta é do próprio pagador.")
+
+        days_without_movement = features.payee_days_without_movement
+        min_days = parameters["min_days_without_movement"]
+
+        observed = {"days_without_movement": days_without_movement}
+        threshold = {"min_days_without_movement": min_days}
+
+        if days_without_movement is not None and days_without_movement >= min_days:
+            return self.result(
+                DORMANT,
+                2,
+                WARN,
+                f"Destino que reaparece depois de {days_without_movement} dias sem movimento na nossa base.",
+                typology=MULE,
+                points=parameters["points"],
+                observed=observed,
+                threshold=threshold,
+            )
+
+        return self.result(
+            DORMANT,
+            2,
+            PASS,
+            "Destino com movimento recente na nossa base, ou que o motor nunca viu receber.",
             observed=observed,
             threshold=threshold,
         )

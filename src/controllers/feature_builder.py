@@ -102,6 +102,7 @@ class FeatureBuilder:
             payee_prior_scam_step_ups=self._prior_scam_step_ups(
                 pix, destination_account, params.of("CONTA_RECEBEDORA.suspeita_anterior")
             ),
+            payee_days_without_movement=self._payee_days_without_movement(pix, destination_account),
             payer_recent_third_party_credits=self._recent_third_party_credits(
                 pix, params.of("RASTRO.repasse_rapido")
             ),
@@ -300,3 +301,13 @@ class FeatureBuilder:
         groups.discard((pix["payee_document"], pix["amount"]))
 
         return sorted(amount for _payee, amount in groups)
+
+    def _payee_days_without_movement(self, pix: dict, destination_account: Account):
+        """Há quantos dias a conta destino não recebia nada aprovado na nossa base (None: nunca recebeu)."""
+        last_credit_at = self.pix_feature_repository.last_credit_before(
+            destination_account.id, pix["transaction_date"], AnalysisStatus.APPROVED
+        )
+        if last_credit_at is None:
+            return None
+
+        return (pix["transaction_date"] - last_credit_at).days
