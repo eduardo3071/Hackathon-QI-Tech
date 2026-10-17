@@ -435,6 +435,14 @@ CROSS JOIN (VALUES
     ('QUEM_OPERA.fora_da_zona',
      '{"radius_km": 50, "min_amount": 50000, "min_known_locations": 5}'),
 
+    -- Estimativa: corte no p99 do escore dos Pix legítimos do treino
+    -- (scripts/ml/train.py, semente 1). No modo ativo, acima do corte
+    -- pontua invasão, crescendo até 60 em +0,04 de escore: sozinho chega a
+    -- 2FA (biometria) e nunca recusa. No modo sombra (o padrão da política)
+    -- o escore só vai para o metadata.
+    ('ANOMALIA.ml',
+     '{"score_threshold": 0.61, "score_span": 0.04, "max_points": 60}'),
+
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
     -- diferentes: um sinal sozinho não é "risco claro".

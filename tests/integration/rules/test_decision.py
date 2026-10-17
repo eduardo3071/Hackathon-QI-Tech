@@ -156,6 +156,7 @@ class TestDecisionLayers:
             "RASTRO.proximidade_marcada",
             "CONTA_RECEBEDORA.varias_instituicoes",
             "QUEM_OPERA.fora_da_zona",
+            "ANOMALIA.ml",
         }
 
     def test_rejected_pix_is_recorded_and_consultable(self):

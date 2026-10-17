@@ -2,6 +2,9 @@ from datetime import timezone
 
 from models import Analysis
 
+ML_SIGNAL = "ANOMALIA.ml"
+ML_STATUS = {"pass": "evaluated", "warn": "evaluated", "not_evaluated": "not_evaluated", "not_needed": "not_needed"}
+
 # Os desfechos que explicam a decisão. Um sinal que passou não é motivo
 # de nada, mas aparece em `passed`: quem audita quer saber o que foi
 # conferido, não só o que disparou.
@@ -25,11 +28,15 @@ class PixAnalysisDTO:
     @staticmethod
     def obj_to_dict(analysis: Analysis) -> dict:
         reasons = []
+        ml_result = None
         not_evaluated = []
         not_needed = []
         passed = []
 
         for rule_result in analysis.rule_results:
+            if rule_result.signal_code == ML_SIGNAL:
+                ml_result = rule_result
+
             if rule_result.outcome == "not_evaluated":
                 not_evaluated.append({"signal": rule_result.signal_code, "reason": rule_result.message})
             elif rule_result.outcome == "not_needed":
@@ -57,6 +64,7 @@ class PixAnalysisDTO:
             "not_evaluated": not_evaluated,
             "not_needed": not_needed,
             "passed": passed,
+            "ml": PixAnalysisDTO.ml_to_dict(analysis.policy_version.ml_mode, ml_result),
             "latency_ms": analysis.latency_ms,
         }
 
@@ -115,6 +123,28 @@ class PixAnalysisDTO:
         """Em UTC, sempre: o mesmo instante sai escrito do mesmo jeito,
         tenha ele chegado com -03:00 no PATCH ou voltado do banco."""
         return value.astimezone(timezone.utc).isoformat()
+
+    @staticmethod
+    def ml_to_dict(ml_mode: str, ml_result) -> dict:
+        """O modelo de anomalia em destaque: o modo, o escore e as 3 features que mais fugiram do normal.
+
+        `status` diz se o modelo rodou (`evaluated`), se faltou o modelo
+        (`not_evaluated`) ou se o Pix saiu pelo caminho rápido e ele nem
+        precisou rodar (`not_needed`).
+        """
+        observed = {}
+        status = "not_evaluated"
+        if ml_result is not None:
+            observed = ml_result.observed
+            status = ML_STATUS.get(ml_result.outcome, "evaluated")
+
+        return {
+            "mode": ml_mode,
+            "status": status,
+            "model_version": observed.get("model_version"),
+            "anomaly_score": observed.get("anomaly_score"),
+            "top_features": observed.get("top_features", []),
+        }
 
     @staticmethod
     def rule_result_to_dict(rule_result) -> dict:

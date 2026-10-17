@@ -154,6 +154,10 @@ def comparison_table(rules, with_ml) -> list:
             f"| {SCENARIOS[scenario]} — pego (Pix) | {pct(b['caught'], b['n'])} | {pct(m['caught'], m['n'])} "
             f"| {100 * (m_rate - b_rate):+.1f} p.p. |"
         )
+    for scenario in SCENARIOS:
+        scored = sum(1 for r in with_ml if r["scenario"] == scenario and "ANOMALIA.ml" in r["signals"])
+        total = sum(1 for r in with_ml if r["scenario"] == scenario)
+        lines.append(f"| {SCENARIOS[scenario]} — o ML pontuou (escore acima do corte) | — | {pct(scored, total)} | — |")
     b, m = base["legit"], ml["legit"]
     for key, label in (("two_factor", "2FA"), ("rejected", "recusa")):
         lines.append(
@@ -193,6 +197,19 @@ FINDINGS = [
     "**Celular roubado: o Pix grande é sempre pego, os pequenos passam.** O Pix de teste de R$ 10 e a nova tentativa "
     "de R$ 199 cabem nos R$ 200 por Pix que o BCB permite em aparelho não cadastrado; a perda fica no teto diário.",
     "**Rajada:** a velocidade só pede 2FA a partir do 5º Pix em 10 minutos; os 4 primeiros saem.",
+]
+
+
+ML_CONCLUSION = [
+    "**Conclusão sobre o ML.** O ganho é pequeno. O escore separa: no modo sombra, o padrão novo tem escore mediano "
+    "acima do corte (p99 dos legítimos do treino), e o ML pontua a maior parte desses Pix. Mas os pontos crescem com o "
+    "escore e só chegam aos 60 (o corte de invasão, que pede biometria) com o escore 0,04 acima do corte; a maioria "
+    "dos Pix de centavos ganha poucos pontos e segue aprovada. Nas fraudes que as regras já pegam, o ML não muda nada, "
+    "e nos legítimos não acrescenta fricção. Recomendação: manter em sombra na entrega e, se o grupo quiser o modo "
+    "ativo, discutir a escala de pontos (`score_span`) com estes números — sabendo que o cenário \"padrão novo\" foi "
+    "desenhado por nós e que uma feature (destinos distintos em 24 h) entrou depois de o ML errar esse cenário no treino.",
+    "",
+    "Treino: semente 1, só os Pix `sim-legit-`; avaliação: semente 2, que o modelo não viu.",
 ]
 
 
@@ -253,6 +270,8 @@ def main() -> None:
             "pontos de invasão, com teto, e nunca recusa sozinho.",
             "",
             *comparison_table(rows, ml_rows),
+            "",
+            *ML_CONCLUSION,
             "",
             "### Por cenário, com o ML ativo",
             "",

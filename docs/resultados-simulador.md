@@ -2,7 +2,7 @@
 
 > **Leia antes dos números.** O simulador é do próprio grupo: os cenários de fraude foram desenhados por nós, conhecendo as regras. Por isso estes números são **teste de regressão da política e medida de fricção**, e **não eficácia**: não dizem quanto o motor pegaria de fraude real. O motor só vê Pix de clientes da QI Tech, e o simulador reproduz isso: 70% dos créditos que as contas recebem vêm de pagadores que o motor nunca vê (salário, vítimas de outros bancos). O cenário "padrão novo" também foi desenhado por nós: ele mostra o mecanismo do ML, não a eficácia dele.
 
-Semente 2, 200 clientes, 6915 Pix, 494 s de simulação (de maio a meados de junho de 2026). Gerado por `scripts/simulator/report.py`; como reproduzir está no fim.
+Semente 2, 200 clientes, 6915 Pix, 486 s de simulação (de maio a meados de junho de 2026). Gerado por `scripts/simulator/report.py`; como reproduzir está no fim.
 
 ## Resumo
 
@@ -70,8 +70,63 @@ Latência gravada pelo motor (`latency_ms`), da chegada do Pix à decisão.
 
 | Caminho | Pix | % dos Pix | p50 | p95 | p99 |
 |---|---:|---:|---:|---:|---:|
-| rápido | 2831 | 40.9% | 37 ms | 50 ms | 57 ms |
-| profundo | 4084 | 59.1% | 37 ms | 50 ms | 56 ms |
+| rápido | 2831 | 40.9% | 35 ms | 48 ms | 59 ms |
+| profundo | 4084 | 59.1% | 37 ms | 52 ms | 61 ms |
+
+## Escore de anomalia (modo sombra)
+
+| Tipologia | Pix com escore | Escore p50 | Escore p95 |
+|---|---:|---:|---:|
+| Clientes legítimos | 3802 | 0.452 | 0.568 |
+| Conta invadida | 103 | 0.610 | 0.676 |
+| Golpe | 29 | 0.583 | 0.633 |
+| Conta laranja | 44 | 0.575 | 0.609 |
+| Padrão novo (nenhuma regra cobre) | 106 | 0.621 | 0.647 |
+
+## Regras sozinhas × regras + ML
+
+A mesma semente (2) com o ML em modo ativo (`ml_mode = active`): o escore soma pontos de invasão, com teto, e nunca recusa sozinho.
+
+| | Regras sozinhas | Regras + ML (ativo) | Diferença |
+|---|---:|---:|---:|
+| Conta invadida — pego (Pix) | 51.5% | 51.5% | +0.0 p.p. |
+| Golpe — pego (Pix) | 37.5% | 37.5% | +0.0 p.p. |
+| Conta laranja — pego (Pix) | 70.5% | 70.5% | +0.0 p.p. |
+| Padrão novo (nenhuma regra cobre) — pego (Pix) | 0.0% | 3.8% | +3.8 p.p. |
+| Clientes legítimos — o ML pontuou (escore acima do corte) | — | 0.8% | — |
+| Conta invadida — o ML pontuou (escore acima do corte) | — | 50.5% | — |
+| Golpe — o ML pontuou (escore acima do corte) | — | 14.6% | — |
+| Conta laranja — o ML pontuou (escore acima do corte) | — | 4.5% | — |
+| Padrão novo (nenhuma regra cobre) — o ML pontuou (escore acima do corte) | — | 66.0% | — |
+| Legítimos — 2FA | 2.1% | 2.1% | +0.0 p.p. |
+| Legítimos — recusa | 0.0% | 0.0% | +0.0 p.p. |
+
+**Conclusão sobre o ML.** O ganho é pequeno. O escore separa: no modo sombra, o padrão novo tem escore mediano acima do corte (p99 dos legítimos do treino), e o ML pontua a maior parte desses Pix. Mas os pontos crescem com o escore e só chegam aos 60 (o corte de invasão, que pede biometria) com o escore 0,04 acima do corte; a maioria dos Pix de centavos ganha poucos pontos e segue aprovada. Nas fraudes que as regras já pegam, o ML não muda nada, e nos legítimos não acrescenta fricção. Recomendação: manter em sombra na entrega e, se o grupo quiser o modo ativo, discutir a escala de pontos (`score_span`) com estes números — sabendo que o cenário "padrão novo" foi desenhado por nós e que uma feature (destinos distintos em 24 h) entrou depois de o ML errar esse cenário no treino.
+
+Treino: semente 1, só os Pix `sim-legit-`; avaliação: semente 2, que o modelo não viu.
+
+### Por cenário, com o ML ativo
+
+| Cenário | Situação | Pix | Aprovado | (dos quais com aviso) | 2FA | Recusado | Pego (Pix) | Pego (valor) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| Clientes legítimos | `aluguel` | 154 | 66.2% | 20.1% | 33.8% | 0.0% | — | — |
+| Clientes legítimos | `celular_novo` | 10 | 100.0% | 0.0% | 0.0% | 0.0% | — | — |
+| Clientes legítimos | `destino_novo` | 734 | 98.9% | 1.2% | 1.1% | 0.0% | — | — |
+| Clientes legítimos | `lojista` | 1097 | 99.8% | 0.1% | 0.2% | 0.0% | — | — |
+| Clientes legítimos | `racha` | 929 | 100.0% | 0.0% | 0.0% | 0.0% | — | — |
+| Clientes legítimos | `rotina` | 3582 | 99.6% | 0.0% | 0.4% | 0.0% | — | — |
+| Clientes legítimos | `salario` | 62 | 0.0% | 0.0% | 100.0% | 0.0% | — | — |
+| Clientes legítimos | `viagem` | 46 | 100.0% | 0.0% | 0.0% | 0.0% | — | — |
+| Conta invadida | `aparelho_novo` | 8 | 0.0% | 0.0% | 100.0% | 0.0% | 100.0% | 100.0% |
+| Conta invadida | `celular_roubado` | 30 | 66.7% | 0.0% | 33.3% | 0.0% | 33.3% | 89.3% |
+| Conta invadida | `fora_da_zona` | 8 | 0.0% | 0.0% | 100.0% | 0.0% | 100.0% | 100.0% |
+| Conta invadida | `rajada` | 57 | 52.6% | 5.3% | 47.4% | 0.0% | 47.4% | 47.7% |
+| Golpe | `falsa_central` | 12 | 25.0% | 8.3% | 75.0% | 0.0% | 75.0% | 85.5% |
+| Golpe | `falsa_central_repetido` | 12 | 25.0% | 0.0% | 75.0% | 0.0% | 75.0% | 84.5% |
+| Golpe | `falso_investimento` | 24 | 100.0% | 4.2% | 0.0% | 0.0% | 0.0% | 0.0% |
+| Conta laranja | `repasse` | 18 | 0.0% | 0.0% | 38.9% | 61.1% | 100.0% | 100.0% |
+| Conta laranja | `vitima_para_laranja` | 26 | 50.0% | 0.0% | 34.6% | 15.4% | 50.0% | 66.7% |
+| Padrão novo (nenhuma regra cobre) | `centavos` | 106 | 96.2% | 0.0% | 3.8% | 0.0% | 3.8% | 5.3% |
 
 ## Como reproduzir
 
