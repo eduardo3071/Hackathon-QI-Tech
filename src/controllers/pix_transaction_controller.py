@@ -1,6 +1,7 @@
 import hashlib
 import ipaddress
 import json
+import time
 from copy import deepcopy
 from datetime import datetime
 from typing import Tuple
@@ -70,6 +71,7 @@ class PixTransactionController(BaseController):
         4. Avaliar, gravar e salvar — o commit é a última linha.
         """
         self.logger.debug(f"Analisando o Pix {pix_payload['id']}")
+        started_at = time.perf_counter()
 
         pix = self._parse_pix(pix_payload)
 
@@ -95,8 +97,12 @@ class PixTransactionController(BaseController):
         features = self.feature_builder.build(pix, destination_account, device, params)
         engine_result = self.analysis_engine.run(features, params)
 
+        # O tempo da DECISÃO: da chegada até aqui, com a espera na trava, as
+        # features e as regras. Gravar as linhas e o commit vêm depois.
+        latency_ms = round((time.perf_counter() - started_at) * 1000)
+
         pix_transaction = self._record_pix(pix, source_account, destination_account, device)
-        analysis = self._record_analysis(pix_transaction, policy, features, engine_result)
+        analysis = self._record_analysis(pix_transaction, policy, features, engine_result, latency_ms)
         self._update_aggregates(pix, destination_account, device, features, engine_result, params)
 
         analysis_dto = PixAnalysisDTO.obj_to_dict(analysis)
@@ -252,7 +258,9 @@ class PixTransactionController(BaseController):
             }
         )
 
-    def _record_analysis(self, pix_transaction, policy, features: PixFeatures, engine_result: EngineResult):
+    def _record_analysis(
+        self, pix_transaction, policy, features: PixFeatures, engine_result: EngineResult, latency_ms: int
+    ):
         """A decisão e um resultado por sinal — inclusive os que passaram ou não rodaram."""
         decision = engine_result.decision
 
@@ -272,6 +280,7 @@ class PixTransactionController(BaseController):
                 "device_trusted": features.device_trusted,
                 "layers": engine_result.layers,
                 "features": features.to_dict(),
+                "latency_ms": latency_ms,
             },
             status_enumerator=decision.status,
             event_datetime=pix_transaction.transaction_date,

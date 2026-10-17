@@ -33,6 +33,7 @@ class Analysis(Base):
     device_trusted = Column(Boolean, nullable=False)
     layers = Column(ARRAY(SmallInteger), nullable=False)
     features = Column(JSONB, nullable=False)
+    latency_ms = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (

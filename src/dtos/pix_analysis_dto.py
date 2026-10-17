@@ -57,6 +57,7 @@ class PixAnalysisDTO:
             "not_evaluated": not_evaluated,
             "not_needed": not_needed,
             "passed": passed,
+            "latency_ms": analysis.latency_ms,
         }
 
         # O status com que a análise NASCEU, e não o atual: é a resposta do

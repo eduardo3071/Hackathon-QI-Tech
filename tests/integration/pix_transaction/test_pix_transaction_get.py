@@ -134,3 +134,20 @@ class TestPixTransactionIdempotency:
 
         assert status == 200
         assert second == first
+
+
+class TestPixTransactionLatency:
+    def test_every_analysis_records_how_long_the_engine_took(self):
+        """`latency_ms` é gravado na análise: o GET e o reenvio devolvem o tempo da decisão, não o de agora."""
+        payload = PayloadGenerator.create_pix_payload()
+
+        status, created = RequestGenerator.POST_pix_transaction(payload)
+        assert status == 201
+
+        latency_ms = created["metadata"]["latency_ms"]
+        assert isinstance(latency_ms, int)
+        assert 0 <= latency_ms < 2000
+
+        status, fetched = RequestGenerator.GET_pix_transaction(payload["id"])
+        assert status == 200
+        assert fetched["metadata"]["latency_ms"] == latency_ms

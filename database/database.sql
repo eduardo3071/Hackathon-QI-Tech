@@ -171,6 +171,9 @@ CREATE TABLE analysis(
     device_trusted                  BOOLEAN NOT NULL,
     layers                          SMALLINT[] NOT NULL,
     features                        JSONB NOT NULL,
+    -- Quanto o motor levou para decidir, em milissegundos: da chegada do
+    -- Pix ao controller até a decisão pronta (inclui a espera na trava).
+    latency_ms                      INTEGER NOT NULL CHECK (latency_ms >= 0),
     created_at                      TIMESTAMPTZ NOT NULL DEFAULT(NOW()),
     UNIQUE(analysis_key),
     UNIQUE(pix_transaction_id)
