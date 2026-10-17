@@ -30,6 +30,8 @@ class PixFeatures:
     payee_markers: List[dict]
 
     # Regra 2 — aparelho e horário noturno
+    payer_known: bool
+    payer_account_age_days: int
     device_trusted: bool
     untrusted_devices_day_amount: Optional[int]
     is_night: Optional[bool]

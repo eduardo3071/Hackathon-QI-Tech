@@ -44,7 +44,6 @@ class TestEndToEndScenarios:
         assert response["status"] == "two_factor_required"
         assert response["metadata"]["scam_warning"] is True
 
-    @pytest.mark.xfail(strict=True, reason="tarefa 5: cliente que o motor ainda não conhece")
     def test_unknown_client_small_pix(self):
         """Primeiro Pix de um cliente de conta antiga: R$ 300 de dia, para conta antiga."""
         response = Scenario.send(amount=30000, transaction_date=DAY)

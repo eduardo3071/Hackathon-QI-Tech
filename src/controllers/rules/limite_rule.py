@@ -1,17 +1,13 @@
 from controllers.features import PixFeatures
 from controllers.rules.base_rule import BaseRule
 from controllers.rules.policy_parameters import PolicyParameters
-from controllers.rules.signal_result import APP, ATO, MULE, PASS, TWO_FACTOR, SignalResult
+from controllers.rules.perfil_rule import VALUE as PROFILE_VALUE
+from controllers.rules.signal_result import APP, ATO, MULE, NOT_EVALUATED, PASS, TWO_FACTOR, SignalResult
 from models import Account
+from utils.money import format_brl
 
 UNREGISTERED_DEVICE = "LIMITE.aparelho_nao_cadastrado"
 NIGHT = "LIMITE.noturno"
-
-
-def format_brl(amount_in_cents: int) -> str:
-    """15000 → "R$ 150,00". Só para as mensagens: o número de verdade viaja em centavos."""
-    reais, cents = divmod(amount_in_cents, 100)
-    return f"R$ {reais:,}".replace(",", ".") + f",{cents:02d}"
 
 
 class LimiteRule(BaseRule):
@@ -55,6 +51,9 @@ class LimiteRule(BaseRule):
                 UNREGISTERED_DEVICE, 0, PASS, "Aparelho confiável para este pagador.", threshold=threshold
             )
 
+        if self._is_new_client_with_old_account(features, parameters, params):
+            return self._evaluate_new_client(features, parameters, params)
+
         day_amount = features.untrusted_devices_day_amount + features.amount
         observed = {"amount": features.amount, "day_amount": day_amount}
 
@@ -87,6 +86,57 @@ class LimiteRule(BaseRule):
             0,
             PASS,
             "Aparelho ainda não confiável, mas dentro dos limites por Pix e por dia.",
+            observed=observed,
+            threshold=threshold,
+        )
+
+    def _is_new_client_with_old_account(
+        self, features: PixFeatures, parameters: dict, params: PolicyParameters
+    ) -> bool:
+        """Cliente que o motor ainda não conhece, com conta pagadora antiga.
+
+        O limite de partida vem do PERFIL.valor: se ele estiver desligado,
+        não há limite com que trocar o do aparelho, e vale a regra normal.
+        """
+        return (
+            not features.payer_known
+            and features.payer_account_age_days >= parameters["new_client_min_account_age_days"]
+            and params.is_enabled(PROFILE_VALUE)
+        )
+
+    def _evaluate_new_client(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> SignalResult:
+        """Primeiro Pix de um cliente de conta antiga: até o limite de partida, o aparelho não decide.
+
+        Na avaliação o banco nasce vazio e todo cliente chega num aparelho
+        "novo". Em produção o motor nasceria com a carga do histórico; isto
+        evita tratar todo cliente como fraude no primeiro dia sem abrir mão
+        do limite: acima do limite de partida, 2FA.
+        """
+        fallback_amount = params.of(PROFILE_VALUE)["fallback_amount"]
+        observed = {"amount": features.amount, "payer_account_age_days": features.payer_account_age_days}
+        threshold = {
+            "fallback_amount": fallback_amount,
+            "new_client_min_account_age_days": parameters["new_client_min_account_age_days"],
+        }
+
+        if features.amount > fallback_amount:
+            return self.result(
+                UNREGISTERED_DEVICE,
+                0,
+                TWO_FACTOR,
+                f"Primeiro Pix deste pagador no motor, de {format_brl(features.amount)}, acima do limite de "
+                f"partida de {format_brl(fallback_amount)}.",
+                typology=ATO,
+                observed=observed,
+                threshold=threshold,
+            )
+
+        return self.result(
+            UNREGISTERED_DEVICE,
+            0,
+            NOT_EVALUATED,
+            "O motor ainda não tem histórico deste pagador: conta pagadora com "
+            f"{features.payer_account_age_days} dias e valor dentro do limite de partida.",
             observed=observed,
             threshold=threshold,
         )

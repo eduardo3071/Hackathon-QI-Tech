@@ -20,6 +20,12 @@ class PixFeatureRepository:
     def __init__(self, context: Context) -> None:
         self.session = context.db_session
 
+    def payer_has_pix(self, payer_document: str) -> bool:
+        """Se o motor já gravou algum Pix deste pagador, com qualquer status."""
+        return self.session.query(
+            self.session.query(PixTransaction.id).filter(PixTransaction.payer_document_number == payer_document).exists()
+        ).scalar()
+
     def attempt_groups(self, payer_document: str, start: datetime, end: datetime) -> List[Tuple[str, int]]:
         """As tentativas do pagador na janela, com qualquer status, agrupadas por (recebedor, valor).
 

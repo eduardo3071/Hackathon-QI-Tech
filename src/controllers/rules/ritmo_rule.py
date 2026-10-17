@@ -1,8 +1,8 @@
 from controllers.features import PixFeatures
 from controllers.rules.base_rule import BaseRule
-from controllers.rules.limite_rule import format_brl
 from controllers.rules.policy_parameters import PolicyParameters
 from controllers.rules.signal_result import ATO, PASS, REJECT, TWO_FACTOR, SignalResult
+from utils.money import format_brl
 
 VELOCITY = "RITMO.velocidade"
 

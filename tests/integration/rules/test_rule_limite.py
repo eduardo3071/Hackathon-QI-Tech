@@ -19,15 +19,19 @@ class TestRuleLimiteAparelhoNaoCadastrado:
     conhecido.
     """
 
+    # Conta pagadora recente: com conta antiga, o primeiro Pix de um cliente
+    # que o motor não conhece vai para o limite de partida (classe abaixo).
+    RECENT_ACCOUNT = "2026-08-01T10:00:00-03:00"
+
     def test_new_device_above_200_requires_two_factor(self):
-        response = Scenario.send(amount=20001, transaction_date=DAY)
+        response = Scenario.send(payer_opening_date=self.RECENT_ACCOUNT, amount=20001, transaction_date=DAY)
 
         assert response["status"] == "two_factor_required"
         assert response["metadata"]["recommended_action"] == "step_up"
         assert reason_for(response, "LIMITE.aparelho_nao_cadastrado")["outcome"] == "two_factor"
 
     def test_new_device_at_exactly_200_is_approved(self):
-        response = Scenario.send(amount=20000, transaction_date=DAY)
+        response = Scenario.send(payer_opening_date=self.RECENT_ACCOUNT, amount=20000, transaction_date=DAY)
 
         assert response["status"] == "approved"
         assert reason_for(response, "LIMITE.aparelho_nao_cadastrado") is None
@@ -130,6 +134,58 @@ class TestRuleLimiteConfiancaDoAparelho:
 
         assert response["status"] == "two_factor_required"
         assert reason_for(response, "LIMITE.aparelho_nao_cadastrado")["observed"]["day_amount"] == 108000
+
+
+class TestRuleLimiteClienteDesconhecido:
+    """Cliente que o motor ainda não conhece: nenhum Pix dele gravado.
+
+    Na avaliação o banco nasce vazio, e todo cliente chega num aparelho
+    "novo". Se a conta pagadora tem 180 dias ou mais, o aparelho não pede
+    2FA até o limite de partida do perfil (R$ 1.000): em produção o motor
+    nasceria com a carga do histórico. Conta pagadora recente segue a
+    regra normal de aparelho não confiável.
+    """
+
+    OLD_ACCOUNT = "2025-03-02T10:00:00-03:00"
+    EXACTLY_180_DAYS = "2026-04-20T14:00:00-03:00"
+    ONLY_179_DAYS = "2026-04-21T14:00:00-03:00"
+
+    def test_up_to_the_starting_limit_the_device_is_not_evaluated(self):
+        response = Scenario.send(payer_opening_date=self.OLD_ACCOUNT, amount=100000, transaction_date=DAY)
+
+        assert response["status"] == "approved"
+        not_evaluated = {item["signal"]: item["reason"] for item in response["metadata"]["not_evaluated"]}
+        assert "ainda não tem histórico deste pagador" in not_evaluated["LIMITE.aparelho_nao_cadastrado"]
+
+    def test_above_the_starting_limit_requires_two_factor(self):
+        response = Scenario.send(payer_opening_date=self.OLD_ACCOUNT, amount=100001, transaction_date=DAY)
+
+        assert response["status"] == "two_factor_required"
+        reason = reason_for(response, "LIMITE.aparelho_nao_cadastrado")
+        assert reason["outcome"] == "two_factor"
+        assert reason["threshold"]["fallback_amount"] == 100000
+
+    def test_payer_account_with_exactly_180_days_counts_as_old(self):
+        response = Scenario.send(payer_opening_date=self.EXACTLY_180_DAYS, amount=30000, transaction_date=DAY)
+
+        assert response["status"] == "approved"
+
+    def test_payer_account_with_179_days_follows_the_normal_device_rule(self):
+        response = Scenario.send(payer_opening_date=self.ONLY_179_DAYS, amount=30000, transaction_date=DAY)
+
+        assert response["status"] == "two_factor_required"
+        assert reason_for(response, "LIMITE.aparelho_nao_cadastrado")["outcome"] == "two_factor"
+
+    def test_after_the_first_pix_the_client_is_known(self):
+        """Um Pix gravado basta para o motor conhecer o cliente: o seguinte, de outro aparelho, segue a regra normal."""
+        payer = RandomGenerator.generate_cpf()
+        Scenario.send(payer_document=payer, payer_opening_date=self.OLD_ACCOUNT, amount=1000, transaction_date=DAY)
+
+        response = Scenario.send(
+            payer_document=payer, payer_opening_date=self.OLD_ACCOUNT, amount=30000, transaction_date=shift_date(DAY, hours=1)
+        )
+
+        assert response["status"] == "two_factor_required"
 
 
 class TestRuleLimiteNoturno:

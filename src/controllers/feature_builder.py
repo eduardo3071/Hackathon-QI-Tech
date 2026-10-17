@@ -62,6 +62,8 @@ class FeatureBuilder:
             payee_type=pix["payee_type"],
             payer_markers=self._markers(payer_document, transaction_date),
             payee_markers=self._markers(payee_document, transaction_date),
+            payer_known=self.pix_feature_repository.payer_has_pix(payer_document),
+            payer_account_age_days=max(0, (transaction_date - pix["source_account"]["opening_date"]).days),
             device_trusted=self._device_trusted(
                 device_owner, transaction_date, params.of("LIMITE.aparelho_nao_cadastrado")
             ),

@@ -266,9 +266,11 @@ CROSS JOIN (VALUES
 
     -- Res. BCB 403/2024 e nota BCB 20231 (norma): R$ 200 por Pix e
     -- R$ 1.000 por dia em aparelho não cadastrado. Estimativa: o aparelho
-    -- só vira confiável com 2 Pix aprovados, o primeiro há 24 h ou mais.
+    -- só vira confiável com 2 Pix aprovados, o primeiro há 24 h ou mais; e o
+    -- cliente que o motor ainda não conhece, com conta pagadora de 180 dias
+    -- ou mais, vai até o limite de partida do perfil sem 2FA de aparelho.
     ('LIMITE.aparelho_nao_cadastrado',
-     '{"max_amount_per_pix": 20000, "max_amount_per_day": 100000, "trusted_min_approved_pix": 2, "trusted_min_hours": 24}'),
+     '{"max_amount_per_pix": 20000, "max_amount_per_day": 100000, "trusted_min_approved_pix": 2, "trusted_min_hours": 24, "new_client_min_account_age_days": 180}'),
 
     -- Res. BCB 142/2021 (norma): R$ 1.000 entre 20h e 6h, PF para PF.
     ('LIMITE.noturno',
