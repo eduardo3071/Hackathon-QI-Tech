@@ -11,11 +11,15 @@ pydantic==2.13.4
 # O jsonschema e quem confere o corpo da requisicao contra os arquivos
 # de src/schemas/. E a mesma versao que os servicos da QI usam.
 jsonschema==4.17.3
-SQLAlchemy==2.0.23
+# 2.0.36, e nao a 2.0.23 do Base Service: a 2.0.23 nem importa no Python
+# 3.13 (AssertionError no TypingOnly), e os testes rodam no Python da
+# maquina de quem clona. Quem tem 3.13 tomaria erro antes do primeiro teste.
+SQLAlchemy==2.0.36
 # 2.9.10 e a primeira serie com pacote pronto para ARM: no Mac M1/M2/M3
 # a 2.9.5 tentaria compilar do zero e o build quebrava.
 psycopg2-binary==2.9.10
-# O requests e com que este servico chama OUTROS servicos por HTTP.
-# So os connectors (src/connectors/) podem usa-lo — nenhuma chamada
-# externa fica solta no meio do codigo.
-requests==2.32.3
+# O banco de fusos horarios. A regra noturna converte o horario do Pix
+# para America/Sao_Paulo, e o zoneinfo do Python procura os fusos no
+# sistema operacional — que a imagem slim pode nao ter. Com o pacote,
+# o fuso vem junto com a aplicacao, igual em toda maquina.
+tzdata==2024.2

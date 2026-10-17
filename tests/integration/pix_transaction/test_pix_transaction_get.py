@@ -1,0 +1,75 @@
+from tests.utils import PayloadGenerator, RequestGenerator
+
+
+class TestPixTransactionGet:
+    def test_returns_the_same_response_as_the_post(self):
+        """O GET devolve a análise GRAVADA, não uma reavaliação.
+
+        Se o GET reavaliasse, o mesmo Pix poderia mudar de decisão
+        conforme o histórico cresce — e a resposta deixaria de ser prova
+        do que foi decidido naquele momento.
+        """
+        payload = PayloadGenerator.create_pix_payload()
+
+        status, created = RequestGenerator.POST_pix_transaction(payload)
+        assert status == 201
+
+        status, fetched = RequestGenerator.GET_pix_transaction(payload["id"])
+
+        assert status == 200
+        assert fetched == created
+
+    def test_unknown_id_is_not_found(self):
+        status, response = RequestGenerator.GET_pix_transaction("pix-que-nunca-existiu")
+
+        assert status == 404
+        assert response["code"] == "QIT001001"
+
+    def test_refuses_without_internal_token(self):
+        status, response = RequestGenerator.GET_pix_transaction("pix-qualquer", headers={})
+
+        assert status == 403
+        assert response["code"] == "QIT000002"
+
+
+class TestPixTransactionIdempotency:
+    def test_same_id_and_same_content_returns_the_recorded_analysis(self):
+        """Reenvio do mesmo Pix (timeout do cliente, retry da rede) não é Pix novo.
+
+        Responde 200, não 201: nada foi criado agora. E devolve a MESMA
+        análise, sem reavaliar.
+        """
+        payload = PayloadGenerator.create_pix_payload()
+
+        status, first = RequestGenerator.POST_pix_transaction(payload)
+        assert status == 201
+
+        status, second = RequestGenerator.POST_pix_transaction(payload)
+
+        assert status == 200
+        assert second == first
+
+    def test_key_order_does_not_change_the_content(self):
+        """Mesmo conteúdo com as chaves em outra ordem continua sendo o mesmo Pix."""
+        payload = PayloadGenerator.create_pix_payload()
+
+        status, first = RequestGenerator.POST_pix_transaction(payload)
+        assert status == 201
+
+        reordered = dict(reversed(list(payload.items())))
+        status, second = RequestGenerator.POST_pix_transaction(reordered)
+
+        assert status == 200
+        assert second == first
+
+    def test_same_id_with_different_content_is_a_conflict(self):
+        payload = PayloadGenerator.create_pix_payload()
+
+        status, _response = RequestGenerator.POST_pix_transaction(payload)
+        assert status == 201
+
+        payload["amount"] = payload["amount"] + 1
+        status, response = RequestGenerator.POST_pix_transaction(payload)
+
+        assert status == 409
+        assert response["code"] == "QIT001002"

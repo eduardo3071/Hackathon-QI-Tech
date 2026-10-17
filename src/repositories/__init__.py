@@ -1,1 +1,5 @@
-from repositories.sample_entity_repository import SampleEntityRepository
+from repositories.account_repository import AccountRepository
+from repositories.analysis_repository import AnalysisRepository
+from repositories.device_repository import DeviceRepository
+from repositories.pix_transaction_repository import PixTransactionRepository
+from repositories.policy_repository import PolicyRepository

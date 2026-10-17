@@ -3,6 +3,10 @@
 
 -r requirements.txt
 
+# Os testes falam com a API por HTTP, como um cliente qualquer. A API
+# em si nao chama ninguem por HTTP (nao existe connector), entao o
+# requests mora so aqui.
+requests==2.32.3
 pytest==7.4.4
 pytest-cov==4.1.0
 python-dotenv==1.0.1

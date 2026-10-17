@@ -28,3 +28,17 @@ class RandomGenerator:
         )
 
         return cnpj_number
+
+    @staticmethod
+    def generate_account_number():
+        return str(random.randrange(10_000_000, 99_999_999))
+
+    @staticmethod
+    def account_number_for(document_number: str) -> str:
+        """A conta de origem de um pagador, sempre a mesma para o mesmo documento.
+
+        O contrato não traz ISPB na origem, então quem identifica a conta
+        é agência + número. Derivar o número do documento faz o mesmo
+        pagador sair sempre da mesma conta, como na vida real.
+        """
+        return "".join(character for character in document_number if character.isdigit())
