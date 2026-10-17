@@ -51,6 +51,8 @@ Entrega: link do repositório no Slack (grupo da final) até **domingo 18/10, 12
   | Celular novo pede 2FA (`face_liveness`), retorno `passed`, e 10 min depois manda R$ 800 do mesmo aparelho | o segundo não pede 2FA por aparelho |
   | Pix com 2FA por `possible_scam`, retorno `passed`, e no dia seguinte outro Pix fora do perfil para o mesmo destino | destino NÃO é tratado como recorrente, e o Pix é `two_factor_required` com `possible_scam` e `scam_warning: true` (`CONTA_RECEBEDORA.suspeita_anterior`) |
   | Mesmo caso, mas o Pix do dia seguinte com valor dentro do perfil | `approved` (o sinal passa) |
+  | Cliente com mediana de R$ 200 manda R$ 3.000 (15×) para destino novo, do aparelho de sempre | `two_factor_required` com `possible_scam` e aviso de golpe |
+  | Mesmo cliente, R$ 1.500 (7,5×) para destino novo | `approved` com `warn` |
   | Celular novo pede 2FA (`face_liveness`), retorno `failed`, e no dia seguinte faz 2 Pix pequenos aprovados | aparelho continua não confiável |
   | `GET` depois de um retorno `passed` | `status: approved`, com `initial_status: two_factor_required` e o histórico |
 
@@ -191,6 +193,15 @@ pode ser nulo, `to_status_id`, `event_datetime`, `created_at`). Toda análise gr
 - `RASTRO.conta_pagadora_recente` (Regra 7): conta pagadora aberta há menos de 30 dias mandando valor acima do limite
   de partida para destino novo → pontua `mule` (laranja de segundo salto / fraude de abertura).
 - Todos com parâmetros em `rule_parameter`, um teste que dispara e um logo abaixo.
+
+## Perfil graduado (REVISADO — `PERFIL.valor` em dois degraus)
+
+- 1º degrau (como antes): acima do P95 e de 5× a mediana, para destino novo e aparelho confiável → +40 `app`
+  (faixa de aviso: `approved` com `warn`).
+- 2º degrau: **10× a mediana ou mais e valor acima de R$ 1.000**, para destino novo e aparelho confiável → pontua
+  `app` no valor do corte de golpe (60) → `two_factor_required` com `possible_scam` e `scam_warning: true`.
+- Fator, piso e pontos em `rule_parameter` (`high_median_multiplier: 10`, `high_min_amount: 100000`,
+  `high_app_points: 60`). Sem histórico suficiente (menos de 5 Pix) não há mediana, e vale só o limite de partida.
 
 ## Velocidade
 

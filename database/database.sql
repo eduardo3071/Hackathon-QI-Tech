@@ -343,9 +343,11 @@ CROSS JOIN (VALUES
 
     -- Estimativa: acima do P95 e de 5x a mediana dos aprovados em 90 dias,
     -- com pelo menos 5 Pix; sem histórico, R$ 1.000 (entre o Pix médio
-    -- entre pessoas, R$ 273, e a fraude média, R$ 1.735).
+    -- entre pessoas, R$ 273, e a fraude média, R$ 1.735). Segundo degrau:
+    -- 10x a mediana ou mais e acima de R$ 1.000, para destino novo e do
+    -- aparelho confiável, pontua golpe no corte (60): 2FA com aviso.
     ('PERFIL.valor',
-     '{"window_days": 90, "min_history": 5, "percentile": 95, "median_multiplier": 5, "fallback_amount": 100000, "app_points": 40, "ato_points": 60}'),
+     '{"window_days": 90, "min_history": 5, "percentile": 95, "median_multiplier": 5, "fallback_amount": 100000, "app_points": 40, "ato_points": 60, "high_median_multiplier": 10, "high_min_amount": 100000, "high_app_points": 60}'),
 
     -- Estimativa: conta destino com menos de 30 dias (fator do art. 39-B da
     -- Res. BCB 147). Primeiro crédito fora do perfil pontua 60; só a
