@@ -96,16 +96,16 @@ A idempotência do POST compara o hash do payload normalizado (`payload_hash`): 
 
 ### Regras e decisão
 
-São 8 regras compostas, com 22 sinais. Cada sinal devolve `pass`, `warn`, `two_factor`, `reject`, `not_evaluated` (sem dado) ou `not_needed` (dispensado), com pontos para um placar.
+São 8 regras compostas, com 25 sinais. Cada sinal devolve `pass`, `warn`, `two_factor`, `reject`, `not_evaluated` (sem dado) ou `not_needed` (dispensado), com pontos para um placar.
 
 | Regra | Sinais | O que pega |
 |---|---|---|
 | 1. Marcação | `lista` | Pagador ou recebedor marcado por fraude (simula o DICT) |
-| 2. Limite por contexto | `aparelho_nao_cadastrado`, `noturno`, `sem_geolocalizacao` | Limites de norma: aparelho novo, noite, geolocalização desligada |
+| 2. Limite por contexto | `aparelho_nao_cadastrado`, `noturno`, `sem_geolocalizacao`, `noturno_fora_de_casa` | Limites de norma: aparelho novo, noite, geolocalização desligada (não para a empresa no aparelho e no canal de sempre); à noite, longe de casa, para destino novo, o teto noturno sem exceção (coação) |
 | 3. Ritmo | `velocidade`, `fracionamento`, `destinos_novos` | Rajada de Pix, Pix dividido para fugir do limite, rajada para destinos novos |
-| 4. Perfil | `valor` | Valor fora do histórico: acima do P95 e de 5× a mediana em 90 dias. Destino recorrente atenua; para destino novo, compara com o histórico de destinos novos; loja PJ antiga só avisa |
+| 4. Perfil | `valor`, `escalada` | Valor fora do histórico: acima do P95 e de 5× a mediana em 90 dias. Destino recorrente atenua; para destino novo, compara com o histórico de destinos novos; loja PJ antiga só avisa. Valores crescentes para o mesmo destino em 7 dias (falso investimento) |
 | 5. Quem opera | `aparelho_compartilhado`, `viagem_impossivel`, `fora_da_zona`, `canal_incomum`, `ip_compartilhado` | Indícios de que outra pessoa está com a conta |
-| 6. Conta recebedora | `conta_nova`, `fan_in`, `dormente`, `varias_instituicoes`, `suspeita_anterior` | Recebedor com cara de laranja ou já ligado a golpe |
+| 6. Conta recebedora | `conta_nova`, `fan_in`, `dormente`, `varias_instituicoes`, `suspeita_anterior`, `primeiro_pix_alto` | Recebedor com cara de laranja ou já ligado a golpe; primeiro Pix alto para conta PF recém-aberta (falso parente) |
 | 7. Rastro | `repasse_rapido`, `proximidade_marcada`, `conta_pagadora_recente` | Dinheiro que entra e sai em minutos; ligação com conta marcada |
 | 8. Anomalia | `ml` (Isolation Forest) | Padrões que nenhuma regra cobre; em modo sombra, não muda a decisão |
 
@@ -124,6 +124,7 @@ Sem 2FA, o motor ainda tem duas saídas. Aprova com aviso (`recommended_action: 
 2. 10 Pix em 10 minutos somando R$ 1.000 ou mais.
 3. Placar `mule` ≥ 60 com 2 ou mais sinais diferentes de laranja.
 4. Recebedor que recebeu de conta marcada nas últimas 24 horas (1 salto).
+5. Pix noturno PF→PF para destino novo, a mais de 5 km dos locais habituais, com a soma noturna acima de R$ 1.000 (`LIMITE.noturno_fora_de_casa`): o teto da Res. BCB 142 sem exceção no contexto de coação, em que a vítima passa no próprio 2FA.
 
 **Depois do 2FA, o `PATCH` ensina o motor.** Biometria aprovada torna o aparelho confiável. Biometria reprovada (por qualquer motivo do 2FA) bloqueia a confiança no aparelho por 24 h. Golpe confirmado pela vítima **não entra no perfil nem torna o destino recorrente**, para o golpe não ensinar o motor a aceitar o próximo; ainda assim, por 90 dias, um novo Pix fora do perfil para o mesmo destino pede 2FA de novo (`suspeita_anterior`), exceto o padrão de conta do mês (valor até 25% parecido, 20 dias depois).
 
@@ -143,7 +144,7 @@ O Banco Central já fixou metade dos parâmetros do motor; a outra metade são e
 | Alerta de golpe do BCB | Alerta de golpe para transações atípicas | `scam_warning` e a faixa de aviso |
 | MED 2.0 | Rastreio do dinheiro de golpe além da primeira conta | `RASTRO.proximidade_marcada` |
 | STJ, REsp 2.209.868 (2026) | Sem transação incompatível com o perfil, o banco não responde pelo golpe da falsa central | O motivo gravado em cada análise é prova de diligência |
-| LGPD (prevenção à fraude) | A prevenção à fraude é hipótese de tratamento; a biometria é tratada pelo app, o motor só recebe o resultado do 2FA | `face_liveness`; nada pessoal em log. **Enquadramento exato (artigo) a confirmar com o jurídico da QI Tech** |
+| LGPD, art. 11, II, "g" ([texto](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm)) | Permite tratar dado sensível para "garantia da prevenção à fraude e à segurança do titular, nos processos de identificação e autenticação de cadastro em sistemas eletrônicos"; a biometria é tratada pelo app, o motor só recebe o resultado do 2FA | `face_liveness`; nada pessoal em log. Enquadramento a confirmar com o jurídico da QI Tech |
 
 O mercado usa as mesmas ideias: o Modo Rua do Nubank reduz o limite fora do local seguro e pede reconhecimento facial acima dele ([Nubank](https://international.nubank.com.br/pt-br/consumidores/carnaval-seguro-pioneiro-modo-rua-do-nubank-ja-protege-mais-de-5-milhoes-de-clientes/)), e o Alerta Pix do Itaú avisa antes de concluir a transferência suspeita.
 
@@ -275,10 +276,10 @@ Clientes legítimos: **2,1% de 2FA na versão 1 e 2,8% na versão 2**, 0% de rec
 
 **Limitações conhecidas:**
 
-- **Falso parente** (conta de 15 dias, R$ 1.890): ainda passa para o cliente simulado, cujo histórico de destinos novos já tem valores de R$ 2–3 mil.
-- **Celular roubado na rua:** o primeiro Pix aprovado longe de casa passa a valer como zona habitual, e o segundo já não parece distante.
+- **Falso parente:** resolvido na bateria (`primeiro_pix_alto`); continua aberto para conta com mais de 30 dias ou valor abaixo de R$ 1.000.
+- **Celular roubado na rua:** resolvido na bateria (local habitual só depois de 24 h; Pix noturno longe de casa para destino novo é recusado); continua aberto perto da casa da vítima.
 - **Teste de contas** (Pix de centavos): só o ML pegaria, e em modo sombra ele só registra.
-- **Coação:** sem sinal no payload.
+- **Coação:** coberta à noite, longe de casa, para destino novo (a quinta forma de recusar); continua aberta perto de casa e para destino recorrente. Próximos passos no app: senha de coação, lugares seguros, aumento de limite com 24 h de espera.
 - **Latência:** na primeira rodada, em outro ambiente, o p95 do caminho rápido foi de 48 ms. Na máquina usada na entrega (Windows com Docker Desktop) o p95 passa de 200 ms. **Não prometemos um número sem medir na máquina da demonstração.**
 - **Visibilidade:** o motor só vê Pix da própria instituição; repasse rápido, fan-in, conta dormente e proximidade de conta marcada dependem disso. O caminho para superar é a consulta ao DICT.
 
@@ -297,3 +298,14 @@ Clientes legítimos: **2,1% de 2FA na versão 1 e 2,8% na versão 2**, 0% de rec
 | Biometria reprovada | Bloqueava o aparelho só por suspeita de invasão | Bloqueia por 24 h em qualquer 2FA com biometria |
 | Nº de sinais | cerca de 20 | 22 |
 | Resultados | "antes das correções em curso": 2,1% de 2FA | Medidos de novo: 2,8% de 2FA em legítimos |
+
+**Ajustes finais (18/10), depois da versão 2:**
+
+| Tema | Antes | Agora |
+|---|---|---|
+| Falso parente (F2 da bateria) | Passava quando o pagador já mandava valores altos a destinos novos | `CONTA_RECEBEDORA.primeiro_pix_alto`: primeiro Pix de R$ 1.000 ou mais para PF com conta de < 30 dias → 2FA com aviso de golpe |
+| Falso investimento | Cada Pix, sozinho, parecia normal | `PERFIL.escalada`: Pix crescentes para o mesmo destino em 7 dias, o atual ≥ 3× o primeiro → 2FA com aviso a partir de R$ 300 |
+| Salário pago pela empresa | Sem geolocalização, todo Pix > R$ 500 pedia 2FA | `LIMITE.sem_geolocalizacao` não se aplica ao PJ no aparelho confiável e no canal de sempre |
+| Celular roubado na rua (F6) | O Pix aprovado na rua virava "local habitual" na hora | Local só vira habitual 24 h depois, para o método do 2FA e para a coação |
+| Coação (F8) | A vítima coagida passava no 2FA | `LIMITE.noturno_fora_de_casa` → `rejected`: a quinta forma de recusar |
+| Nº de sinais | 22 | 25 |
