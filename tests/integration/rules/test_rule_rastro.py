@@ -1,13 +1,27 @@
+from uuid import uuid4
+
 from tests.utils import RandomGenerator, Scenario, reason_for, shift_date
 
 DAY = "2026-10-17T14:00:00-03:00"
 SEVEN_DAYS_BEFORE = "2026-10-10T09:00:00-03:00"
 
 
+def trusted_device(payer_document: str) -> str:
+    """Um aparelho confiável para este pagador (R$ 200 por Pix é o limite de um aparelho novo, Res. BCB 403)."""
+    device_id = f"dvc-{uuid4().hex[:12]}"
+    Scenario.register_device(payer_document, device_id, shift_date(DAY, days=-2))
+
+    return device_id
+
+
 def credit(payee_document: str, amount: int, transaction_date: str, payer_document: str = None) -> dict:
     """Um Pix aprovado PARA `payee_document` — o dinheiro que entra na conta que vai repassar."""
+    if payer_document is None:
+        payer_document = RandomGenerator.generate_cpf()
+
     response = Scenario.send(
         payer_document=payer_document,
+        device_id=trusted_device(payer_document),
         payee_document=payee_document,
         payee_account_number=RandomGenerator.account_number_for(payee_document),
         amount=amount,
@@ -31,7 +45,7 @@ class TestRuleRastroRepasseRapido:
         mule = RandomGenerator.generate_cpf()
         credit(mule, 100000, shift_date(DAY, minutes=-30))
 
-        response = Scenario.send(payer_document=mule, amount=80000, transaction_date=DAY)
+        response = Scenario.send(payer_document=mule, device_id=trusted_device(mule), amount=80000, transaction_date=DAY)
 
         assert response["status"] == "two_factor_required"
         assert response["metadata"]["step_up_reason"] == "possible_scam"
@@ -44,7 +58,7 @@ class TestRuleRastroRepasseRapido:
         mule = RandomGenerator.generate_cpf()
         credit(mule, 100000, shift_date(DAY, minutes=-30))
 
-        response = Scenario.send(payer_document=mule, amount=79000, transaction_date=DAY)
+        response = Scenario.send(payer_document=mule, device_id=trusted_device(mule), amount=79000, transaction_date=DAY)
 
         assert response["status"] == "approved"
         assert reason_for(response, "RASTRO.repasse_rapido") is None
@@ -53,7 +67,7 @@ class TestRuleRastroRepasseRapido:
         mule = RandomGenerator.generate_cpf()
         credit(mule, 100000, shift_date(DAY, minutes=-61))
 
-        response = Scenario.send(payer_document=mule, amount=80000, transaction_date=DAY)
+        response = Scenario.send(payer_document=mule, device_id=trusted_device(mule), amount=80000, transaction_date=DAY)
 
         assert reason_for(response, "RASTRO.repasse_rapido") is None
 
@@ -62,7 +76,7 @@ class TestRuleRastroRepasseRapido:
         owner = RandomGenerator.generate_cpf()
         credit(owner, 100000, shift_date(DAY, minutes=-30), payer_document=owner)
 
-        response = Scenario.send(payer_document=owner, amount=80000, transaction_date=DAY)
+        response = Scenario.send(payer_document=owner, device_id=trusted_device(owner), amount=80000, transaction_date=DAY)
 
         assert reason_for(response, "RASTRO.repasse_rapido") is None
 
@@ -71,7 +85,11 @@ class TestRuleRastroRepasseRapido:
         credit(mule, 100000, shift_date(DAY, minutes=-30))
 
         response = Scenario.send(
-            payer_document=mule, amount=80000, payee_opening_date=SEVEN_DAYS_BEFORE, transaction_date=DAY
+            payer_document=mule,
+            device_id=trusted_device(mule),
+            amount=80000,
+            payee_opening_date=SEVEN_DAYS_BEFORE,
+            transaction_date=DAY,
         )
 
         assert response["status"] == "rejected"

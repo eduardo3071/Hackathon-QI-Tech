@@ -85,11 +85,27 @@ class TestRuleContaRecebedoraFanIn:
     clássico de conta laranja. Só vale para PF: lojista recebe de muitos.
     """
 
-    def _payers_to(self, payee: dict, count: int, amount: int = 25000) -> list:
-        """`count` pagadores diferentes, um por minuto, R$ 250 cada (o fan-in só vale com R$ 1.000 na janela)."""
+    def _payers_to(self, payee: dict, count: int, amount: int = 20000) -> list:
+        """`count` pagadores diferentes, um por minuto, R$ 200 cada (o fan-in só vale com R$ 1.000 na janela).
+
+        R$ 200 é o limite por Pix do aparelho não cadastrado (Res. BCB 403):
+        os pagadores chegam de aparelhos novos e passam sem 2FA de aparelho.
+        """
         responses = []
         for minute in range(count):
             responses.append(Scenario.send(**payee, amount=amount, transaction_date=shift_date(DAY, minutes=minute)))
+
+        return responses
+
+    def _known_payers_to(self, payee: dict, count: int, amount: int) -> list:
+        """`count` clientes diferentes, um por minuto, cada um do seu aparelho confiável (cadastro já feito)."""
+        responses = []
+        for minute in range(count):
+            buyer = {"payer_document": RandomGenerator.generate_cpf(), "device_id": f"dvc-{uuid4().hex[:12]}"}
+            Scenario.register_device(buyer["payer_document"], buyer["device_id"], shift_date(DAY, days=-5))
+            responses.append(
+                Scenario.send(**buyer, **payee, amount=amount, transaction_date=shift_date(DAY, minutes=minute))
+            )
 
         return responses
 
@@ -130,7 +146,7 @@ class TestRuleContaRecebedoraFanIn:
         new_account = self._old_person_account()
         new_account["payee_opening_date"] = SEVEN_DAYS_BEFORE
 
-        responses = self._payers_to(new_account, count=4, amount=35000)
+        responses = self._known_payers_to(new_account, count=4, amount=35000)
 
         assert [response["status"] for response in responses[:2]] == ["approved"] * 2
         assert responses[2]["status"] == "rejected"

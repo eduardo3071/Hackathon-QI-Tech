@@ -1,8 +1,7 @@
 from controllers.features import PixFeatures
 from controllers.rules.base_rule import BaseRule
 from controllers.rules.policy_parameters import PolicyParameters
-from controllers.rules.perfil_rule import VALUE as PROFILE_VALUE
-from controllers.rules.signal_result import ATO, NOT_EVALUATED, PASS, TWO_FACTOR, SignalResult
+from controllers.rules.signal_result import ATO, PASS, TWO_FACTOR, SignalResult
 from models import Account
 from utils.money import format_brl
 
@@ -53,9 +52,6 @@ class LimiteRule(BaseRule):
                 UNREGISTERED_DEVICE, 0, PASS, "Aparelho confiável para este pagador.", threshold=threshold
             )
 
-        if self._is_in_learning_period(features, parameters, params):
-            return self._evaluate_learning_period(features, parameters, params)
-
         day_amount = features.untrusted_devices_day_amount + features.amount
         observed = {"amount": features.amount, "day_amount": day_amount}
 
@@ -88,81 +84,6 @@ class LimiteRule(BaseRule):
             0,
             PASS,
             "Aparelho ainda não confiável, mas dentro dos limites por Pix e por dia.",
-            observed=observed,
-            threshold=threshold,
-        )
-
-    def _is_in_learning_period(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> bool:
-        """O período de aprendizado: o pagador ainda não tem nenhum aparelho confiável, e a conta pagadora é antiga.
-
-        Dura enquanto o motor não aprendeu o aparelho do cliente — não só
-        no primeiro Pix. Acaba quando ALGUM aparelho do pagador fica
-        confiável: daí em diante, um aparelho novo é o caso do celular
-        roubado, e volta aos R$ 200. O limite de partida vem do
-        PERFIL.valor: se ele estiver desligado, vale a regra normal.
-        """
-        return (
-            not features.payer_has_trusted_device
-            and features.payer_account_age_days >= parameters["new_client_min_account_age_days"]
-            and params.is_enabled(PROFILE_VALUE)
-        )
-
-    def _evaluate_learning_period(
-        self, features: PixFeatures, parameters: dict, params: PolicyParameters
-    ) -> SignalResult:
-        """No período de aprendizado, o limite por Pix é o de partida (R$ 1.000), dentro do teto diário do BCB.
-
-        Na avaliação o banco nasce vazio e todo cliente chega num aparelho
-        "novo". Em produção o motor nasceria com a carga do histórico; isto
-        evita tratar todo cliente como fraude nos primeiros dias sem abrir
-        mão dos limites: acima do limite de partida, ou passando dos
-        R$ 1.000 por dia em aparelhos não confiáveis, 2FA.
-        """
-        fallback_amount = params.of(PROFILE_VALUE)["fallback_amount"]
-        max_per_day = parameters["max_amount_per_day"]
-        day_amount = features.untrusted_devices_day_amount + features.amount
-
-        observed = {
-            "amount": features.amount,
-            "day_amount": day_amount,
-            "payer_account_age_days": features.payer_account_age_days,
-        }
-        threshold = {
-            "fallback_amount": fallback_amount,
-            "max_amount_per_day": max_per_day,
-            "new_client_min_account_age_days": parameters["new_client_min_account_age_days"],
-        }
-
-        if features.amount > fallback_amount:
-            return self.result(
-                UNREGISTERED_DEVICE,
-                0,
-                TWO_FACTOR,
-                f"Pagador ainda sem aparelho confiável no motor, com Pix de {format_brl(features.amount)}, acima do "
-                f"limite de partida de {format_brl(fallback_amount)}.",
-                typology=ATO,
-                observed=observed,
-                threshold=threshold,
-            )
-
-        if day_amount > max_per_day:
-            return self.result(
-                UNREGISTERED_DEVICE,
-                0,
-                TWO_FACTOR,
-                f"Pagador ainda sem aparelho confiável no motor: os Pix de hoje somam {format_brl(day_amount)}, acima "
-                f"dos {format_brl(max_per_day)} por dia permitidos em aparelho não cadastrado.",
-                typology=ATO,
-                observed=observed,
-                threshold=threshold,
-            )
-
-        return self.result(
-            UNREGISTERED_DEVICE,
-            0,
-            NOT_EVALUATED,
-            "O motor ainda não tem histórico deste pagador (período de aprendizado): conta pagadora com "
-            f"{features.payer_account_age_days} dias, valor dentro do limite de partida e do teto diário.",
             observed=observed,
             threshold=threshold,
         )

@@ -55,6 +55,8 @@ class AnalysisEngine:
 
         cuts = params.of(DECISION_PARAMETERS)
         strong_step_up = self._needs_strong_step_up(features, cuts)
+        # O cliente que o motor ainda não conhece: nenhum aparelho dele é confiável.
+        unknown_client = not features.payer_has_trusted_device
 
         deep_layer_reason = self._deep_layer_reason(features, results)
 
@@ -66,14 +68,24 @@ class AnalysisEngine:
                     )
 
             decision = self.decision_maker.decide(
-                results, cuts, deep_layer_timed_out=False, deep_layer_reason=None, strong_step_up=strong_step_up
+                results,
+                cuts,
+                deep_layer_timed_out=False,
+                deep_layer_reason=None,
+                strong_step_up=strong_step_up,
+                unknown_client=unknown_client,
             )
             return EngineResult(results, decision, FAST, list(ALWAYS_LAYERS))
 
         deep_layer_timed_out = self._run_deep_layer(features, params, results, cuts["deep_layer_timeout_ms"])
 
         decision = self.decision_maker.decide(
-            results, cuts, deep_layer_timed_out, deep_layer_reason, strong_step_up=strong_step_up
+            results,
+            cuts,
+            deep_layer_timed_out,
+            deep_layer_reason,
+            strong_step_up=strong_step_up,
+            unknown_client=unknown_client,
         )
         return EngineResult(results, decision, DEEP, list(ALWAYS_LAYERS) + [DEEP_LAYER])
 

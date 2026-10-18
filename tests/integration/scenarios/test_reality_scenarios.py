@@ -32,6 +32,9 @@ def client_with_history(amounts=None) -> dict:
 
     client = {"payer_document": RandomGenerator.generate_cpf(), "device_id": new_device()}
     usual_payee = new_payee()
+    # Aparelho novo só passa até R$ 200 por Pix (Res. BCB 403): o cliente do
+    # histórico já cadastrou o celular dele, como na vida real.
+    Scenario.register_device(client["payer_document"], client["device_id"], shift_date(HISTORY_START, days=-1))
     Scenario.build_history(**client, **usual_payee, amounts=amounts, first_date=HISTORY_START)
 
     return {**client, "usual_payee": usual_payee}
@@ -106,6 +109,59 @@ class TestRecurringDestinationNeedsRealHistory:
             assert pix["status"] == "approved", (month, pix["metadata"])
 
 
+class TestDeviceRegistrationForEveryone:
+    """Item 9 — a Res. BCB 403/2024 vale para todos: R$ 200 por Pix e R$ 1.000 por dia em aparelho não cadastrado.
+
+    Não existe mais o "período de aprendizado" do cliente que o motor ainda
+    não conhece. O primeiro Pix acima de R$ 200 de um aparelho novo, sem
+    outro sinal de risco, é o cadastro do aparelho que a norma prevê:
+    `device_registration` com `face_liveness`, feito uma vez só.
+    """
+
+    def test_first_pix_of_an_unknown_client_registers_the_device(self):
+        origin = {"payer_document": RandomGenerator.generate_cpf(), "device_id": new_device()}
+
+        first = send(**origin, amount=30000, transaction_date=DAY)
+
+        assert first["status"] == "two_factor_required", first["metadata"]
+        assert first["metadata"]["step_up_reason"] == "device_registration"
+        assert first["metadata"]["step_up_method"] == "face_liveness"
+        assert first["metadata"]["scam_warning"] is False
+
+        first["transaction_date"] = DAY
+        confirm(first, minutes=1)
+
+        second = send(**origin, amount=80000, transaction_date=shift_date(DAY, minutes=10))
+
+        assert second["status"] == "approved", second["metadata"]
+        assert "LIMITE.aparelho_nao_cadastrado" in second["metadata"]["passed"]
+
+    def test_first_pix_up_to_the_bcb_limit_is_approved(self):
+        """Caso logo abaixo: R$ 150 (até R$ 200 por Pix) do aparelho novo passa sem 2FA."""
+        origin = {"payer_document": RandomGenerator.generate_cpf(), "device_id": new_device()}
+
+        first = send(**origin, amount=15000, transaction_date=DAY)
+
+        assert first["status"] == "approved", first["metadata"]
+
+    def test_failed_biometrics_in_the_registration_blocks_the_device(self):
+        """A biometria reprovada no cadastro: o Pix é recusado e o aparelho segue sem confiança por 24 h."""
+        origin = {"payer_document": RandomGenerator.generate_cpf(), "device_id": new_device()}
+
+        first = send(**origin, amount=30000, transaction_date=DAY)
+        assert first["metadata"]["step_up_reason"] == "device_registration"
+
+        status, response = RequestGenerator.PATCH_pix_transaction(
+            first["id"], {"two_factor_result": "failed", "completed_at": shift_date(DAY, minutes=1)}
+        )
+        assert status == 200
+        assert response["status"] == "rejected"
+
+        retry = send(**origin, amount=30000, transaction_date=shift_date(DAY, minutes=30))
+        assert retry["status"] == "two_factor_required"
+        assert retry["metadata"]["step_up_method"] == "face_liveness"
+
+
 class TestOldCompanyIsNotAScam:
     TWELVE_YEARS_BEFORE = "2014-10-17T10:00:00-03:00"
 
@@ -152,10 +208,14 @@ class TestFanInNeedsMoneyAndFewerPayersForNewAccounts:
     TWELVE_DAYS_BEFORE = "2026-10-05T09:00:00-03:00"
 
     def _buyers(self, payee: dict, count: int, amount: int) -> list:
-        """`count` pagadores diferentes, um por minuto, cada um de um aparelho novo."""
-        return [
-            send(**payee, amount=amount, transaction_date=shift_date(DAY, minutes=minute)) for minute in range(count)
-        ]
+        """`count` clientes diferentes, um por minuto, cada um do seu aparelho confiável (o cadastro já foi feito)."""
+        responses = []
+        for minute in range(count):
+            buyer = {"payer_document": RandomGenerator.generate_cpf(), "device_id": new_device()}
+            Scenario.register_device(buyer["payer_document"], buyer["device_id"], HISTORY_START)
+            responses.append(send(**buyer, **payee, amount=amount, transaction_date=shift_date(DAY, minutes=minute)))
+
+        return responses
 
     def test_graduation_raffle_is_not_a_mule_account(self):
         """Item 7 — a rifa da formatura: 8 amigos mandam R$ 20 a uma conta de 12 dias. Falso positivo antes (RECUSADA)."""

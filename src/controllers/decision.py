@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Optional
 
+from controllers.rules.limite_rule import UNREGISTERED_DEVICE
 from controllers.rules.signal_result import APP, ATO, MULE, REJECT, TWO_FACTOR, SignalResult
 from models import AnalysisStatus
 
@@ -20,6 +21,9 @@ BLOCK = "block"
 STEP_UP_ACCOUNT_TAKEOVER = "account_takeover"
 STEP_UP_POSSIBLE_SCAM = "possible_scam"
 STEP_UP_LIMIT = "limit"
+# O cadastro do aparelho que a Res. BCB 403 prevê: o cliente que o motor ainda
+# não conhece, num aparelho novo, sem nenhum outro sinal de risco.
+STEP_UP_DEVICE_REGISTRATION = "device_registration"
 
 # ...e COMO. Para invasão, biometria facial com prova de vida: no SIM swap
 # o fraudador recebe o SMS, e o rosto é a prova que ele não tem. Para
@@ -65,6 +69,7 @@ class DecisionMaker:
         deep_layer_timed_out: bool,
         deep_layer_reason: Optional[str],
         strong_step_up: bool = False,
+        unknown_client: bool = False,
     ) -> Decision:
         scores = {ATO: 0, APP: 0, MULE: 0}
         for result in results:
@@ -103,6 +108,23 @@ class DecisionMaker:
             takeover = takeover or deep_layer_reason == STEP_UP_ACCOUNT_TAKEOVER
             scam = scam or deep_layer_reason == STEP_UP_POSSIBLE_SCAM
             limit = limit or deep_layer_reason == STEP_UP_LIMIT
+
+        # O cadastro do aparelho (Res. BCB 403): o cliente que o motor ainda
+        # não conhece, num aparelho novo, e NADA mais de arriscado além do
+        # limite do aparelho não cadastrado. Não é suspeita de invasão: é a
+        # biometria que a norma prevê, feita uma vez só.
+        other_risks = [
+            result for result in results if result.is_risk() and result.signal_code != UNREGISTERED_DEVICE
+        ]
+        if takeover and unknown_client and not other_risks and not deep_layer_timed_out:
+            return Decision(
+                AnalysisStatus.TWO_FACTOR_REQUIRED,
+                None,
+                STEP_UP,
+                scores,
+                step_up_reason=STEP_UP_DEVICE_REGISTRATION,
+                step_up_method=FACE_LIVENESS,
+            )
 
         if takeover:
             # Invasão e golpe ao mesmo tempo: o rosto prova quem opera, e o

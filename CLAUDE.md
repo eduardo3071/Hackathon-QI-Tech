@@ -40,9 +40,10 @@ Entrega: link do repositório no Slack (grupo da final) até **domingo 18/10, 12
   | Cenário | Status esperado |
   |---|---|
   | Exemplo do slide: R$ 1.500 às 22h15, conta pagadora de 2025-03-02, destino aberto há 7 dias, pagador sem histórico no motor | `two_factor_required` com aviso de golpe |
-  | Primeiro Pix de um cliente desconhecido pelo motor, conta pagadora antiga, R$ 300 às 14h para conta antiga | `approved` |
+  | Primeiro Pix de um cliente desconhecido pelo motor, conta pagadora antiga, R$ 300 às 14h para conta antiga (aparelho nunca visto) | `two_factor_required` com `step_up_reason: device_registration` e `face_liveness` (Res. BCB 403 vale para todos) |
+  | Mesmo cliente, com o cadastro do aparelho aprovado (retorno `passed`), R$ 800 dez minutos depois | `approved` |
+  | Primeiro Pix de um cliente desconhecido pelo motor, R$ 150 | `approved` (até R$ 200 por Pix) |
   | Mesmo cliente desconhecido, R$ 1.500 às 14h para conta antiga | `two_factor_required` |
-  | Período de aprendizado: R$ 300; R$ 800 dez minutos depois; R$ 300 no dia seguinte, do mesmo aparelho novo | `approved`; `two_factor_required` (teto diário); `approved` |
   | Celular roubado: aparelho novo faz Pix de R$ 10 (aprovado) e, 3 minutos depois, R$ 5.000 para destino novo | o segundo é `two_factor_required` com `face_liveness` |
   | Carro usado: cliente com histórico paga R$ 35.000 de dia a conta aberta há 20 dias (primeiro crédito) | `two_factor_required` com aviso de golpe (não `rejected`) |
   | Conta laranja: conta PF aberta há 10 dias recebe Pix de R$ 300 de 5 pagadores distintos em 1 h | o 4º (R$ 1.200 de 4 pagadores) é `rejected` (conta nova + fan-in; antes, o 5º) |
@@ -103,6 +104,8 @@ A decisão segue isso à risca:
      (placar `app` acima do corte, ou um único sinal forte de conta laranja). O 2FA sozinho não protege contra golpe;
      a fricção útil é a confirmação com aviso de golpe na tela.
    - `step_up_reason: "limit"` → `step_up_method: "in_app_confirmation"` (limite noturno, sem outro sinal).
+   - `step_up_reason: "device_registration"` → `step_up_method: "face_liveness"` (cadastro do aparelho do cliente que o
+     motor ainda não conhece; seção "Cliente que o motor ainda não conhece").
    - Se houver motivo de invasão e de golpe ao mesmo tempo, `face_liveness` + `scam_warning: true`.
    - **O método depende do contexto (bateria de realidade, item 5):** a confirmação no app não protege quando o
      próprio celular está com o ladrão. Qualquer 2FA (golpe ou limite) vira `face_liveness` quando o aparelho não é
@@ -185,19 +188,25 @@ pode ser nulo, `to_status_id`, `event_datetime`, `created_at`). Toda análise gr
 - Por quê: sem ele, a vítima que confirmou o golpe e paga o mesmo golpista no dia seguinte saía `approved` com `warn`
   (o crédito confirmado tira a conta do "primeiro crédito" da `conta_nova`, e o placar `app` ficava na faixa de aviso).
 
-## Cliente que o motor ainda não conhece — período de aprendizado (REVISADO — banco vazio na avaliação)
+## Cliente que o motor ainda não conhece — a Res. BCB 403 vale para todos (REVISADO, item 9 da bateria de realidade)
 
-- O alívio vale **enquanto o pagador não tiver nenhum aparelho confiável** (e não só no primeiro Pix). Quando algum
-  aparelho dele fica confiável, o período acaba: um aparelho novo daí em diante é o caso do celular roubado, e volta
-  aos R$ 200 por Pix.
-- Se a conta pagadora (`source_account.opening_date`) tem **pelo menos 180 dias**: o limite por Pix do aparelho não
-  confiável é o limite de partida (`PERFIL.valor.fallback_amount`, R$ 1.000), em vez dos R$ 200, **respeitando o teto
-  do BCB de R$ 1.000 por dia** somando os Pix aprovados de aparelhos não confiáveis. Dentro dos dois, o sinal de
-  aparelho sai `not_evaluated` com a mensagem "o motor ainda não tem histórico deste pagador". Acima de qualquer um
-  → 2FA (`face_liveness`).
-- Se a conta pagadora tem menos de 180 dias: regra normal de aparelho não confiável.
-- Explicar no README: em produção o motor nasce com a carga do histórico; isto evita tratar todo cliente como fraude
-  no primeiro dia, sem abrir mão do limite.
+Decisão do grupo (18/10): **não existe mais "período de aprendizado"**. Removido o alívio do cliente que o motor ainda
+não conhece (que levava o limite por Pix do aparelho não confiável de R$ 200 a R$ 1.000 para conta pagadora de 180 dias
+ou mais; o parâmetro `new_client_min_account_age_days` saiu do seed).
+
+- Aparelho não confiável fica com **R$ 200 por Pix e R$ 1.000 por dia para todo pagador**, inclusive o que o motor nunca
+  viu, como a Res. BCB 403/2024 manda para aparelho não cadastrado. O "Cadastro de dispositivos Pix" é produto da
+  própria QI Tech.
+- **Cadastro do aparelho:** quando o único motivo do 2FA é o limite do aparelho não cadastrado de um cliente que o motor
+  ainda não conhece (nenhum aparelho do pagador é confiável), sem nenhum outro sinal de risco, a decisão é
+  `two_factor_required` com `step_up_reason: "device_registration"` e `step_up_method: "face_liveness"` (sem aviso de
+  golpe). É o cadastro que a norma prevê, feito uma vez só: com o retorno `passed`, o aparelho fica confiável. Não se usa
+  `in_app_confirmation`, porque a confirmação no próprio aparelho novo não prova nada (mesmo raciocínio do item 5).
+- Com qualquer outro sinal de risco junto, ou quando o pagador já tem aparelho confiável (aparelho novo = celular
+  roubado), o 2FA segue como `account_takeover`.
+- O limite de partida do `PERFIL.valor` para quem não tem histórico (R$ 1.000) continua igual.
+- Explicar no README: o primeiro Pix de cada cliente acima de R$ 200 pede o cadastro do aparelho de propósito; em
+  produção o motor nasce com a carga do histórico (aparelhos já cadastrados), e isto some.
 
 ## Sinais novos (Fase 3 — usam campos do payload que hoje nenhuma regra lê)
 

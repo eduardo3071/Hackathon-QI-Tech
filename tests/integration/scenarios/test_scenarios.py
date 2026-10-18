@@ -40,10 +40,20 @@ class TestEndToEndScenarios:
         assert response["metadata"]["scam_warning"] is True
 
     def test_unknown_client_small_pix(self):
-        """Primeiro Pix de um cliente de conta antiga: R$ 300 de dia, para conta antiga."""
+        """Primeiro Pix de um cliente de conta antiga: R$ 300 de dia, para conta antiga.
+
+        A Res. BCB 403 vale para todos (item 9 da bateria de realidade): R$ 300
+        passam dos R$ 200 do aparelho não cadastrado, e sem nenhum outro
+        sinal de risco o 2FA é o cadastro do aparelho, com biometria facial.
+        Até R$ 200, o primeiro Pix sai sem 2FA.
+        """
         response = Scenario.send(amount=30000, transaction_date=DAY)
 
-        assert response["status"] == "approved"
+        assert response["status"] == "two_factor_required"
+        assert response["metadata"]["step_up_reason"] == "device_registration"
+        assert response["metadata"]["step_up_method"] == "face_liveness"
+
+        assert Scenario.send(amount=15000, transaction_date=DAY)["status"] == "approved"
 
     def test_unknown_client_above_starting_limit(self):
         response = Scenario.send(amount=150000, transaction_date=DAY)
@@ -93,10 +103,15 @@ class TestEndToEndScenarios:
             "payee_opening_date": "2026-10-07T10:00:00-03:00",
         }
 
-        responses = [
-            Scenario.send(**payee, amount=30000, transaction_date=shift_date(DAY, minutes=10 * index))
-            for index in range(5)
-        ]
+        responses = []
+        for index in range(5):
+            # Pagadores com aparelho confiável: o cadastro do aparelho (R$ 200
+            # por Pix) já foi feito, e o que sobra é a convergência na conta.
+            buyer = {"payer_document": RandomGenerator.generate_cpf(), "device_id": f"dvc-{uuid4().hex[:12]}"}
+            Scenario.register_device(buyer["payer_document"], buyer["device_id"], HISTORY_START)
+            responses.append(
+                Scenario.send(**buyer, **payee, amount=30000, transaction_date=shift_date(DAY, minutes=10 * index))
+            )
 
         assert responses[2]["status"] == "approved"
         assert responses[3]["status"] == "rejected"
