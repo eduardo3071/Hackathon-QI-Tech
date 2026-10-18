@@ -263,14 +263,14 @@ Os testes por HTTP provam com cenários (193 testes): dez Pix simultâneos do me
 
 **Simulador** (semente 2, 6.915 Pix; `docs/resultados-simulador.md`):
 
-| Tipologia | Versão 1 (pego, Pix) | Versão 2 (pego, Pix) |
-|---|---:|---:|
-| Conta invadida | 51,5% | 63,1% |
-| Golpe | 37,5% | 43,8% |
-| Conta laranja | 70,5% | 100% |
-| Padrão novo (nenhuma regra cobre) | 0% | 0% |
+| Tipologia | Versão 1 (pego, Pix) | Versão 2 (pego, Pix) | Final, 18/10 (pego, Pix) |
+|---|---:|---:|---:|
+| Conta invadida | 51,5% | 63,1% | 63,1% |
+| Golpe | 37,5% | 43,8% | 58,3% |
+| Conta laranja | 70,5% | 100% | 100% |
+| Padrão novo (nenhuma regra cobre) | 0% | 0% | 0% |
 
-Clientes legítimos: **2,1% de 2FA na versão 1 e 2,8% na versão 2**, 0% de recusa nas duas. O aumento vem do cadastro do aparelho (64 dos 188 Pix legítimos com 2FA são `device_registration`: o primeiro Pix acima de R$ 200 de cada cliente, de propósito) e de 8 Pix de folha de pagamento que já pediam 2FA por outro motivo.
+Clientes legítimos: **2,1% de 2FA na versão 1, 2,8% na versão 2 e 2,3% na final**, 0% de recusa nas três. O aumento vem do cadastro do aparelho (64 dos 188 Pix legítimos com 2FA são `device_registration`: o primeiro Pix acima de R$ 200 de cada cliente, de propósito) e de 8 Pix de folha de pagamento que já pediam 2FA por outro motivo.
 
 **Bateria de realidade** (90 clientes por 60 dias e 12 golpes encenados; `docs/bateria-realidade.md`): travam a falsa central (os 3 Pix), o falso investimento (a partir do salto), a falsa venda (3º comprador), a mão fantasma (3º Pix), o SIM swap, a laranja de passagem, a fazenda de contas e a marcação.
 

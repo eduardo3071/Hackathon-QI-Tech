@@ -199,16 +199,16 @@ interno. Esse alerta não pode aparecer na resposta da API: a Lei 9.613/1998, ar
 
 **Leia antes dos números.** O simulador e a bateria são do próprio grupo: os cenários de fraude foram desenhados por nós, conhecendo as regras. Os números são **teste de regressão da política e medida de fricção**, e **não eficácia**: não dizem quanto o motor pegaria de fraude real. O motor só vê Pix de clientes da QI Tech, e o simulador reproduz isso (70% dos créditos que as contas recebem vêm de pagadores que o motor nunca vê).
 
-**Simulador** (semente 2, 200 clientes, 6.915 Pix, modelo treinado com a semente 1; `docs/resultados-simulador.md`):
+**Simulador** (semente 2, 200 clientes, 6.915 Pix, modelo treinado com a semente 1, rodada de 18/10 com os ajustes finais; `docs/resultados-simulador.md`):
 
 | Tipologia | Pix | Pego (Pix) | Pego (valor) |
 |---|---:|---:|---:|
 | Conta invadida | 103 | 63,1% | 84,0% |
-| Golpe | 48 | 43,8% | 71,5% |
+| Golpe | 48 | 58,3% | 81,5% |
 | Conta laranja | 44 | 100% | 100% |
 | Padrão novo (nenhuma regra cobre) | 106 | 0,0% | 0,0% |
 
-Clientes legítimos: 6.614 Pix, **2,8% com 2FA, 0,0% recusados**. Com o ML em modo ativo, o ganho é de +2,8 p.p. só no padrão novo, sem mudar a fricção: por isso o padrão da política é o modo sombra.
+Clientes legítimos: 6.614 Pix, **2,3% com 2FA, 0,0% recusados** (eram 2,8% antes da exceção da empresa sem geolocalização). No golpe, a rodada anterior pegava 43,8% dos Pix e 71,5% do valor; o ganho vem do falso investimento (de 2 para 9 dos 24 Pix com 2FA, pela `PERFIL.escalada`). Com o ML em modo ativo, na rodada anterior, o ganho foi de +2,8 p.p. só no padrão novo, sem mudar a fricção: por isso o padrão da política é o modo sombra.
 
 **Bateria de realidade** (semente 2026, banco do zero, rodada de 18/10; `docs/bateria-realidade.md`): 4.543 Pix legítimos em 60 dias: 88,9% aprovados sem aviso, 4,4% aprovados com aviso, 6,7% com 2FA e nenhum recusado; nos últimos 15 dias, 92,2% aprovados sem aviso, 3,1% com aviso e o resto com 2FA. Dos 12 golpes encenados, só o teste de contas (Pix de centavos) passa inteiro. O falso parente pede 2FA com aviso nos dois Pix; o falso investimento, a partir do salto de R$ 3.000; o celular roubado na rua e o sequestro relâmpago são recusados a partir do 2º Pix; a falsa venda e a laranja, a partir do 3º pagador; a mão fantasma pede biometria no 3º Pix; o SIM swap de madrugada em outro estado é recusado.
 

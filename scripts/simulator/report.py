@@ -190,17 +190,17 @@ FINDINGS = [
     "legítimos com 2FA são `device_registration`: o primeiro Pix acima de R$ 200 de cada cliente, de um aparelho "
     "novo, pede biometria (a Res. BCB 403/2024 vale para todos). Em produção o motor nasce com a carga do histórico "
     "e isso some.",
-    "**Salário que a empresa paga pelo internet banking pede 2FA** (62 Pix, todos): o computador da empresa não "
-    "manda geolocalização, e todo Pix acima de R$ 500 sem ela pede confirmação de limite "
-    "(`LIMITE.sem_geolocalizacao`). A `RITMO.destinos_novos` também dispara na folha (8 Pix: a empresa paga vários "
-    "funcionários que o motor nunca viu em 10 minutos), mas esses já pediam 2FA pelo limite.",
+    "**Salário pelo internet banking: de 62 para 16 Pix com 2FA** (25,8%) depois da exceção de 18/10: o "
+    "`LIMITE.sem_geolocalizacao` não se aplica à empresa no aparelho confiável e no canal de sempre. O que sobra é a "
+    "primeira folha: o aparelho da empresa ainda não confiável (8 Pix, com o cadastro do aparelho) e a "
+    "`RITMO.destinos_novos` (7 Pix: vários funcionários que o motor nunca viu em 10 minutos), de propósito.",
     "**Aluguel ainda tem fricção.** 41 dos 154 Pix de aluguel (26,6%) pedem 2FA, e 35 deles têm `PERFIL.valor`: o "
     "primeiro aluguel, 10x a mediana para um destino novo, cai no segundo degrau. A confirmação com aviso de golpe "
     "não ensina o perfil nem torna o destino recorrente (item 1), mas a `CONTA_RECEBEDORA.suspeita_anterior` deixou "
     "de punir o mês seguinte com valor parecido (item 3).",
-    "**Falso investimento deixou de passar 100%, mas ainda passa quase todo.** O destino só é recorrente com 2 Pix "
-    "em dias diferentes e valor até 1,5x o maior já pago (item 2): 2 dos 24 Pix pedem 2FA com aviso, e 58% saem "
-    "aprovados com aviso. O restante é Pix pequeno, dentro do perfil do cliente simulado.",
+    "**Falso investimento: 9 dos 24 Pix pedem 2FA com aviso** (37,5% dos Pix, 61,1% do valor), contra 2 antes da "
+    "`PERFIL.escalada` de 18/10: a escalada pega o 3º Pix de cada vítima (9x o valor típico, 3x o primeiro). Os 2 "
+    "primeiros de cada sequência (2,5x e 5x o típico) ainda saem, a maioria com aviso: sozinhos, parecem normais.",
     "**Celular roubado: o Pix grande é sempre pego, os pequenos passam.** O Pix de teste de R$ 10 e a nova tentativa "
     "de R$ 199 cabem nos R$ 200 por Pix que o BCB permite em aparelho não cadastrado; a perda fica no teto diário.",
     "**Rajada:** a `RITMO.destinos_novos` (item 6) pede biometria a partir do 3º destino novo somando R$ 2.000, e a "
