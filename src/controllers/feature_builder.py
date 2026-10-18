@@ -92,6 +92,9 @@ class FeatureBuilder:
             payer_has_trusted_device=self._payer_has_trusted_device(
                 payer_document, transaction_date, params.of("LIMITE.aparelho_nao_cadastrado")
             ),
+            payer_biometric_failed_recently=self._payer_biometric_failed_recently(
+                payer_document, transaction_date, params.of("LIMITE.aparelho_nao_cadastrado")
+            ),
             untrusted_devices_day_amount=self._untrusted_devices_day_amount(
                 payer_document, transaction_date, local_date, params.of("LIMITE.aparelho_nao_cadastrado")
             ),
@@ -455,6 +458,19 @@ class FeatureBuilder:
         ]
 
         return round(min(distances), 3)
+
+    def _payer_biometric_failed_recently(self, payer_document: str, transaction_date: datetime, parameters) -> bool:
+        """Se alguma biometria deste pagador foi reprovada na janela de bloqueio (24 h) que termina neste Pix."""
+        if parameters is None:
+            return False
+
+        window = timedelta(hours=parameters["step_up_failed_block_hours"])
+
+        return any(
+            device_owner.step_up_failed_at is not None
+            and transaction_date - window <= device_owner.step_up_failed_at <= transaction_date
+            for device_owner in self.device_owner_repository.list_by_document(payer_document)
+        )
 
     def _payer_has_trusted_device(self, payer_document: str, transaction_date: datetime, parameters) -> bool:
         """Se o pagador tem ALGUM aparelho confiável: enquanto não tem, o motor ainda está aprendendo quem ele é."""

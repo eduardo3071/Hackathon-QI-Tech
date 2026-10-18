@@ -198,7 +198,10 @@ class PixTransactionController(BaseController):
         device_owner = self.device_owner_repository.get(pix_transaction.device_id, payer_document)
 
         if result != TWO_FACTOR_PASSED:
-            if analysis.step_up_reason == STEP_UP_ACCOUNT_TAKEOVER:
+            # Biometria reprovada, por qualquer motivo do 2FA: quem segura o
+            # aparelho não é o rosto do titular. Também vale o motivo de
+            # invasão, que sempre pede biometria.
+            if analysis.step_up_method == FACE_LIVENESS or analysis.step_up_reason == STEP_UP_ACCOUNT_TAKEOVER:
                 self.device_owner_repository.register_step_up_failure(device_owner, completed_at)
             return
 

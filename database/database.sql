@@ -460,9 +460,12 @@ CROSS JOIN (VALUES
 
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
-    -- diferentes: um sinal sozinho não é "risco claro".
+    -- diferentes: um sinal sozinho não é "risco claro". Todo 2FA vira
+    -- biometria (e não confirmação no app) quando o aparelho não é confiável,
+    -- houve biometria reprovada em 24 h ou o Pix está a mais de 5 km de todos
+    -- os últimos locais aprovados (inspiração: Modo Rua do Nubank).
     ('DECISAO.placares',
-     '{"ato_cut": 60, "app_cut": 60, "mule_cut": 60, "app_warn_cut": 30, "mule_min_distinct_signals": 2, "deep_layer_timeout_ms": 300}')
+     '{"ato_cut": 60, "app_cut": 60, "mule_cut": 60, "app_warn_cut": 30, "mule_min_distinct_signals": 2, "deep_layer_timeout_ms": 300, "street_mode_km": 5}')
 ) AS parameter(signal_code, parameters)
 WHERE policy_version.version = '2026.10.1';
 

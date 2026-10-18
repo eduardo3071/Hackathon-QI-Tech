@@ -64,6 +64,7 @@ class DecisionMaker:
         cuts: dict,
         deep_layer_timed_out: bool,
         deep_layer_reason: Optional[str],
+        strong_step_up: bool = False,
     ) -> Decision:
         scores = {ATO: 0, APP: 0, MULE: 0}
         for result in results:
@@ -116,6 +117,10 @@ class DecisionMaker:
                 scam_warning=scam,
             )
 
+        # Golpe e limite pedem a confirmação no app, a menos que o contexto
+        # diga que quem segura o celular pode não ser o titular: aí, biometria.
+        method = FACE_LIVENESS if strong_step_up else IN_APP_CONFIRMATION
+
         if scam:
             typology = APP_SCAM if app_above_cut else MULE_ACCOUNT
             return Decision(
@@ -124,7 +129,7 @@ class DecisionMaker:
                 STEP_UP,
                 scores,
                 step_up_reason=STEP_UP_POSSIBLE_SCAM,
-                step_up_method=IN_APP_CONFIRMATION,
+                step_up_method=method,
                 scam_warning=True,
             )
 
@@ -135,7 +140,7 @@ class DecisionMaker:
                 STEP_UP,
                 scores,
                 step_up_reason=STEP_UP_LIMIT,
-                step_up_method=IN_APP_CONFIRMATION,
+                step_up_method=method,
             )
 
         if scores[APP] >= cuts["app_warn_cut"]:

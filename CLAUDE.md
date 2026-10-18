@@ -104,6 +104,13 @@ A decisão segue isso à risca:
      a fricção útil é a confirmação com aviso de golpe na tela.
    - `step_up_reason: "limit"` → `step_up_method: "in_app_confirmation"` (limite noturno, sem outro sinal).
    - Se houver motivo de invasão e de golpe ao mesmo tempo, `face_liveness` + `scam_warning: true`.
+   - **O método depende do contexto (bateria de realidade, item 5):** a confirmação no app não protege quando o
+     próprio celular está com o ladrão. Qualquer 2FA (golpe ou limite) vira `face_liveness` quando o aparelho não é
+     confiável, quando houve biometria reprovada nas últimas 24 h (em qualquer aparelho do pagador) ou quando o Pix
+     está a mais de 5 km de todos os últimos locais aprovados do pagador (`street_mode_km: 5` em `DECISAO.placares`;
+     é o que o Modo Rua do Nubank faz). `in_app_confirmation` só fica para aparelho confiável, perto do costume.
+     Biometria reprovada, por qualquer motivo do 2FA, bloqueia a confiança do aparelho por 24 h; biometria aprovada
+     o cadastra (Res. BCB 403).
 5. **`approved` com `recommended_action: "warn"`** quando o placar `app` está na faixa de aviso.
 6. **`hold_timer` não existe mais** (código, `recommended_action` e CHECK do banco). Valores de `recommended_action`:
    `none`, `warn`, `step_up`, `block`.

@@ -54,6 +54,7 @@ class AnalysisEngine:
                 results.extend(rule.evaluate(features, params, layer))
 
         cuts = params.of(DECISION_PARAMETERS)
+        strong_step_up = self._needs_strong_step_up(features, cuts)
 
         deep_layer_reason = self._deep_layer_reason(features, results)
 
@@ -64,13 +65,33 @@ class AnalysisEngine:
                         rule.not_needed(signal_code, DEEP_LAYER, "Caminho rápido: nenhum sinal de risco nas camadas 0 e 1.")
                     )
 
-            decision = self.decision_maker.decide(results, cuts, deep_layer_timed_out=False, deep_layer_reason=None)
+            decision = self.decision_maker.decide(
+                results, cuts, deep_layer_timed_out=False, deep_layer_reason=None, strong_step_up=strong_step_up
+            )
             return EngineResult(results, decision, FAST, list(ALWAYS_LAYERS))
 
         deep_layer_timed_out = self._run_deep_layer(features, params, results, cuts["deep_layer_timeout_ms"])
 
-        decision = self.decision_maker.decide(results, cuts, deep_layer_timed_out, deep_layer_reason)
+        decision = self.decision_maker.decide(
+            results, cuts, deep_layer_timed_out, deep_layer_reason, strong_step_up=strong_step_up
+        )
         return EngineResult(results, decision, DEEP, list(ALWAYS_LAYERS) + [DEEP_LAYER])
+
+    @staticmethod
+    def _needs_strong_step_up(features: PixFeatures, cuts: dict) -> bool:
+        """Se qualquer 2FA deste Pix tem de ser biometria facial, e não a confirmação no app.
+
+        A confirmação no próprio celular não protege quando é o ladrão quem o
+        segura: na bateria, o celular roubado e desbloqueado confirmou 3 Pix
+        seguidos no app. Por isso `in_app_confirmation` só fica para o
+        aparelho confiável, sem biometria reprovada nas últimas 24 h, perto
+        de onde o pagador costuma estar. Longe de TODOS os últimos locais
+        aprovados (mais de `street_mode_km`) vale a biometria: é o que o
+        Modo Rua do Nubank faz.
+        """
+        far_from_usual_places = features.zone_nearest_km is not None and features.zone_nearest_km > cuts["street_mode_km"]
+
+        return not features.device_trusted or features.payer_biometric_failed_recently or far_from_usual_places
 
     def _deep_layer_reason(self, features: PixFeatures, results: List[SignalResult]) -> Optional[str]:
         """O gatilho: POR QUE este Pix precisa da camada 2 — ou None, e ele sai pelo caminho rápido.

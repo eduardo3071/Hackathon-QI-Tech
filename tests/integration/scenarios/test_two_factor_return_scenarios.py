@@ -81,13 +81,17 @@ class TestTwoFactorReturnScenarios:
         assert "LIMITE.aparelho_nao_cadastrado" in second["metadata"]["passed"]
         assert second["status"] == "approved"
 
-    def test_limit_passed_does_not_register_the_device(self):
-        """2FA por limite noturno confirmado no app: o Pix conta, mas não cadastra o aparelho.
+    def test_limit_two_factor_from_a_new_phone_is_a_biometric_registration(self):
+        """2FA por limite noturno vindo de um celular novo: biometria, e ela passando cadastra o aparelho.
 
         Três Pix de R$ 300 de noite, do celular de sempre, somam R$ 900. Um
         quarto, de R$ 150, de um celular novo, passa o padrão noturno de
-        R$ 1.000 e pede confirmação de limite. Confirmado, no dia seguinte
-        o celular novo continua sem cadastro: R$ 300 pedem biometria.
+        R$ 1.000 e pede 2FA de limite. Como o aparelho não é confiável, o
+        método é `face_liveness` (item 5 da bateria de realidade: a
+        confirmação no app não prova nada num celular que pode ser do
+        ladrão) e, com a biometria aprovada, o celular novo fica cadastrado:
+        no dia seguinte R$ 300 saem sem 2FA de aparelho. (Antes, o 2FA de
+        limite era só confirmação no app e não cadastrava o aparelho.)
         """
         client = client_with_history()
         night = "2026-10-17T21:00:00-03:00"
@@ -112,6 +116,7 @@ class TestTwoFactorReturnScenarios:
         )
         assert limit_pix["status"] == "two_factor_required"
         assert limit_pix["metadata"]["step_up_reason"] == "limit"
+        assert limit_pix["metadata"]["step_up_method"] == "face_liveness"
 
         send_two_factor_return(limit_pix, "passed", shift_date(night, minutes=46))
 
@@ -123,9 +128,8 @@ class TestTwoFactorReturnScenarios:
             transaction_date="2026-10-18T14:00:00-03:00",
         )
 
-        assert next_day["status"] == "two_factor_required"
-        assert next_day["metadata"]["step_up_method"] == "face_liveness"
-        assert reason_for(next_day, "LIMITE.aparelho_nao_cadastrado")["outcome"] == "two_factor"
+        assert next_day["status"] == "approved", next_day["metadata"]
+        assert "LIMITE.aparelho_nao_cadastrado" in next_day["metadata"]["passed"]
 
     def test_possible_scam_passed_does_not_make_the_destination_recurring(self):
         """A vítima confirma o Pix com aviso de golpe; no dia seguinte paga o mesmo destino de novo.

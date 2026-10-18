@@ -106,6 +106,73 @@ class TestRecurringDestinationNeedsRealHistory:
             assert pix["status"] == "approved", (month, pix["metadata"])
 
 
+class TestStepUpMethodDependsOnContext:
+    NIGHT = "2026-10-17T22:00:00-03:00"
+    NINE_KM_FROM_HOME = {"latitude": -23.479, "longitude": -46.65}
+
+    def _night_client(self) -> dict:
+        """Cliente de R$ 600 por dia, que já fez um Pix noturno de R$ 600 de casa (R$ 600 de soma na noite)."""
+        client = client_with_history(amounts=[60000] * 5)
+        origin = {"payer_document": client["payer_document"], "device_id": client["device_id"]}
+
+        first = send(**origin, **client["usual_payee"], amount=60000, transaction_date=self.NIGHT)
+        assert first["status"] == "approved", first["metadata"]
+
+        return {"origin": origin, "usual_payee": client["usual_payee"]}
+
+    def test_stolen_unlocked_phone_far_from_home_asks_face_liveness(self):
+        """Item 5 — o celular de sempre, desbloqueado, a 9 km de casa às 23h: a confirmação no app não prova nada.
+
+        A confirmação no próprio celular não protege quando é o ladrão quem
+        o segura (como na bateria: 3 Pix seguidos confirmados no app). Com o
+        Pix a mais de 5 km de todos os locais aprovados, o 2FA é biometria.
+        """
+        client = self._night_client()
+
+        second = send(
+            **client["origin"],
+            **client["usual_payee"],
+            amount=60000,
+            transaction_date=shift_date(self.NIGHT, hours=1),
+            geolocation=self.NINE_KM_FROM_HOME,
+        )
+
+        assert second["status"] == "two_factor_required", second["metadata"]
+        assert second["metadata"]["step_up_reason"] == "limit"
+        assert second["metadata"]["step_up_method"] == "face_liveness"
+
+    def test_same_night_pix_near_home_keeps_the_in_app_confirmation(self):
+        """Caso logo abaixo: o mesmo Pix, de casa, do aparelho de sempre, pede só a confirmação no app."""
+        client = self._night_client()
+
+        second = send(
+            **client["origin"], **client["usual_payee"], amount=60000, transaction_date=shift_date(self.NIGHT, hours=1)
+        )
+
+        assert second["status"] == "two_factor_required", second["metadata"]
+        assert second["metadata"]["step_up_reason"] == "limit"
+        assert second["metadata"]["step_up_method"] == "in_app_confirmation"
+
+    def test_recent_failed_biometrics_asks_face_liveness_on_any_two_factor(self):
+        """Biometria reprovada há menos de 24 h: o próximo 2FA, ainda que de limite, volta a ser biometria."""
+        client = self._night_client()
+        origin = client["origin"]
+
+        takeover = send(payer_document=origin["payer_document"], amount=60000, transaction_date=shift_date(self.NIGHT, minutes=10))
+        assert takeover["metadata"]["step_up_method"] == "face_liveness"
+        takeover["transaction_date"] = shift_date(self.NIGHT, minutes=10)
+        status, _ = RequestGenerator.PATCH_pix_transaction(
+            takeover["id"],
+            {"two_factor_result": "failed", "completed_at": shift_date(self.NIGHT, minutes=11)},
+        )
+        assert status == 200
+
+        second = send(**origin, **client["usual_payee"], amount=60000, transaction_date=shift_date(self.NIGHT, hours=1))
+
+        assert second["status"] == "two_factor_required", second["metadata"]
+        assert second["metadata"]["step_up_method"] == "face_liveness"
+
+
 class TestProfileForNewDestinations:
     def _client_with_rent_and_small_pix_to_new_payees(self) -> dict:
         """O aluguel de R$ 2.000 entra no perfil geral (P95 R$ 2.000), e o resto são Pix de R$ 100 para destinos novos."""
