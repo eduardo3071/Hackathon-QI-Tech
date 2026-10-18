@@ -324,7 +324,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-No Windows, o endereço `0.0.0.0` não conecta: crie o `.env` (`copy .env.example .env`) e troque `SERVER_LOCALHOST=0.0.0.0` por `SERVER_LOCALHOST=127.0.0.1`. Se a porta 5432 ou 3000 já estiver ocupada (um Postgres local, por exemplo), ponha `DB_PORT=5433` ou `API_PORT=3001` no `.env` e ajuste a `DATABASE_URL`. A suíte inteira leva uns 2 minutos e termina com **193 passed**.
+No Windows, o endereço `0.0.0.0` não conecta: crie o `.env` (`copy .env.example .env`) e troque `SERVER_LOCALHOST=0.0.0.0` por `SERVER_LOCALHOST=127.0.0.1`. Se a porta 5432 ou 3000 já estiver ocupada (um Postgres local, por exemplo), ponha `DB_PORT=5433` ou `API_PORT=3001` no `.env` e ajuste a `DATABASE_URL`. A suíte inteira leva de 2 a 4 minutos (depende da máquina) e termina com **193 passed**.
 
 ### Mudou o `database/database.sql`?
 
