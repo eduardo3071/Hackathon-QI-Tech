@@ -2,28 +2,30 @@
 
 > **Leia antes dos números.** O simulador é do próprio grupo: os cenários de fraude foram desenhados por nós, conhecendo as regras. Por isso estes números são **teste de regressão da política e medida de fricção**, e **não eficácia**: não dizem quanto o motor pegaria de fraude real. O motor só vê Pix de clientes da QI Tech, e o simulador reproduz isso: 70% dos créditos que as contas recebem vêm de pagadores que o motor nunca vê (salário, vítimas de outros bancos). O cenário "padrão novo" também foi desenhado por nós: ele mostra o mecanismo do ML, não a eficácia dele.
 
-Semente 2, 200 clientes, 6915 Pix, 486 s de simulação (de maio a meados de junho de 2026). Gerado por `scripts/simulator/report.py`; como reproduzir está no fim.
+Semente 2, 200 clientes, 6915 Pix, 1432 s de simulação (de maio a meados de junho de 2026). Gerado por `scripts/simulator/report.py`; como reproduzir está no fim.
 
 ## Resumo
 
 | Tipologia | Pix | Pego (Pix) | Pego (valor) |
 |---|---:|---:|---:|
-| Conta invadida | 103 | 51.5% | 77.5% |
-| Golpe | 48 | 37.5% | 65.0% |
-| Conta laranja | 44 | 70.5% | 91.0% |
+| Conta invadida | 103 | 63.1% | 84.0% |
+| Golpe | 48 | 43.8% | 71.5% |
+| Conta laranja | 44 | 100.0% | 100.0% |
 | Padrão novo (nenhuma regra cobre) | 106 | 0.0% | 0.0% |
 
 | Fricção nos clientes legítimos | Pix | 2FA | Recusa |
 |---|---:|---:|---:|
-| Todos | 6614 | 2.1% | 0.0% |
+| Todos | 6614 | 2.8% | 0.0% |
 
 ## Achados para o grupo
 
-- **Salário que a empresa paga pelo internet banking pede 2FA** (`LIMITE.sem_geolocalizacao`): o computador da empresa não manda geolocalização, e todo Pix acima de R$ 500 sem ela pede confirmação de limite.
-- **Aluguel no mês em que o motor ainda não conhece o destino.** O primeiro aluguel, 10x a mediana para um destino novo, cai no segundo degrau do `PERFIL.valor` e pede 2FA com aviso de golpe. O cliente confirma, mas a confirmação com aviso de golpe não torna o destino recorrente, e a `CONTA_RECEBEDORA.suspeita_anterior` pede 2FA de novo no mês seguinte: o aluguel da matriz de erros reais volta a ter fricção nesse caso.
-- **Falso investimento passa.** O primeiro Pix, pequeno e dentro do perfil, é aprovado e torna o destino recorrente; os seguintes, maiores, ficam atenuados pelo "destino já pago antes".
+- **Cadastro do aparelho de todo cliente (de propósito, item 9 da bateria de realidade).** 64 dos 188 Pix legítimos com 2FA são `device_registration`: o primeiro Pix acima de R$ 200 de cada cliente, de um aparelho novo, pede biometria (a Res. BCB 403/2024 vale para todos). Em produção o motor nasce com a carga do histórico e isso some.
+- **Salário que a empresa paga pelo internet banking pede 2FA** (62 Pix, todos): o computador da empresa não manda geolocalização, e todo Pix acima de R$ 500 sem ela pede confirmação de limite (`LIMITE.sem_geolocalizacao`). A `RITMO.destinos_novos` também dispara na folha (8 Pix: a empresa paga vários funcionários que o motor nunca viu em 10 minutos), mas esses já pediam 2FA pelo limite.
+- **Aluguel ainda tem fricção.** 41 dos 154 Pix de aluguel (26,6%) pedem 2FA, e 35 deles têm `PERFIL.valor`: o primeiro aluguel, 10x a mediana para um destino novo, cai no segundo degrau. A confirmação com aviso de golpe não ensina o perfil nem torna o destino recorrente (item 1), mas a `CONTA_RECEBEDORA.suspeita_anterior` deixou de punir o mês seguinte com valor parecido (item 3).
+- **Falso investimento deixou de passar 100%, mas ainda passa quase todo.** O destino só é recorrente com 2 Pix em dias diferentes e valor até 1,5x o maior já pago (item 2): 2 dos 24 Pix pedem 2FA com aviso, e 58% saem aprovados com aviso. O restante é Pix pequeno, dentro do perfil do cliente simulado.
 - **Celular roubado: o Pix grande é sempre pego, os pequenos passam.** O Pix de teste de R$ 10 e a nova tentativa de R$ 199 cabem nos R$ 200 por Pix que o BCB permite em aparelho não cadastrado; a perda fica no teto diário.
-- **Rajada:** a velocidade só pede 2FA a partir do 5º Pix em 10 minutos; os 4 primeiros saem.
+- **Rajada:** a `RITMO.destinos_novos` (item 6) pede biometria a partir do 3º destino novo somando R$ 2.000, e a velocidade a partir do 5º Pix em 10 minutos; os Pix de rajada pegos subiram de 47,4% para 63,2%.
+- **Latência depende da máquina.** Nesta rodada (Windows com Docker Desktop, código montado por volume) o p95 é de algumas centenas de milissegundos, bem acima da rodada anterior, feita em outro ambiente. Não prometer "p95 abaixo de 100 ms" sem medir na máquina da demonstração.
 
 ## Por cenário
 
@@ -31,33 +33,33 @@ Semente 2, 200 clientes, 6915 Pix, 486 s de simulação (de maio a meados de jun
 
 | Cenário | Situação | Pix | Aprovado | (dos quais com aviso) | 2FA | Recusado | Pego (Pix) | Pego (valor) |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
-| Clientes legítimos | `aluguel` | 154 | 66.2% | 20.1% | 33.8% | 0.0% | — | — |
+| Clientes legítimos | `aluguel` | 154 | 73.4% | 22.1% | 26.6% | 0.0% | — | — |
 | Clientes legítimos | `celular_novo` | 10 | 100.0% | 0.0% | 0.0% | 0.0% | — | — |
-| Clientes legítimos | `destino_novo` | 734 | 98.9% | 1.2% | 1.1% | 0.0% | — | — |
-| Clientes legítimos | `lojista` | 1097 | 99.8% | 0.1% | 0.2% | 0.0% | — | — |
+| Clientes legítimos | `destino_novo` | 734 | 97.5% | 1.5% | 2.5% | 0.0% | — | — |
+| Clientes legítimos | `lojista` | 1097 | 98.5% | 0.3% | 1.5% | 0.0% | — | — |
 | Clientes legítimos | `racha` | 929 | 100.0% | 0.0% | 0.0% | 0.0% | — | — |
-| Clientes legítimos | `rotina` | 3582 | 99.6% | 0.0% | 0.4% | 0.0% | — | — |
+| Clientes legítimos | `rotina` | 3582 | 98.6% | 0.4% | 1.4% | 0.0% | — | — |
 | Clientes legítimos | `salario` | 62 | 0.0% | 0.0% | 100.0% | 0.0% | — | — |
 | Clientes legítimos | `viagem` | 46 | 100.0% | 0.0% | 0.0% | 0.0% | — | — |
 | Conta invadida | `aparelho_novo` | 8 | 0.0% | 0.0% | 100.0% | 0.0% | 100.0% | 100.0% |
-| Conta invadida | `celular_roubado` | 30 | 66.7% | 0.0% | 33.3% | 0.0% | 33.3% | 89.3% |
+| Conta invadida | `celular_roubado` | 30 | 56.7% | 0.0% | 43.3% | 0.0% | 43.3% | 92.4% |
 | Conta invadida | `fora_da_zona` | 8 | 0.0% | 0.0% | 100.0% | 0.0% | 100.0% | 100.0% |
-| Conta invadida | `rajada` | 57 | 52.6% | 5.3% | 47.4% | 0.0% | 47.4% | 47.7% |
+| Conta invadida | `rajada` | 57 | 36.8% | 1.8% | 63.2% | 0.0% | 63.2% | 62.8% |
 | Golpe | `falsa_central` | 12 | 25.0% | 8.3% | 75.0% | 0.0% | 75.0% | 85.5% |
-| Golpe | `falsa_central_repetido` | 12 | 25.0% | 0.0% | 75.0% | 0.0% | 75.0% | 84.5% |
-| Golpe | `falso_investimento` | 24 | 100.0% | 4.2% | 0.0% | 0.0% | 0.0% | 0.0% |
-| Conta laranja | `repasse` | 18 | 0.0% | 0.0% | 38.9% | 61.1% | 100.0% | 100.0% |
-| Conta laranja | `vitima_para_laranja` | 26 | 50.0% | 0.0% | 34.6% | 15.4% | 50.0% | 66.7% |
+| Golpe | `falsa_central_repetido` | 12 | 16.7% | 0.0% | 83.3% | 0.0% | 83.3% | 89.6% |
+| Golpe | `falso_investimento` | 24 | 91.7% | 58.3% | 8.3% | 0.0% | 8.3% | 18.3% |
+| Conta laranja | `repasse` | 18 | 0.0% | 0.0% | 27.8% | 72.2% | 100.0% | 100.0% |
+| Conta laranja | `vitima_para_laranja` | 26 | 0.0% | 0.0% | 61.5% | 38.5% | 100.0% | 100.0% |
 | Padrão novo (nenhuma regra cobre) | `centavos` | 106 | 100.0% | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% |
 
 ## O que causa a fricção nos clientes legítimos
 
 | Sinal presente | Pix legítimos com 2FA ou recusa |
 |---|---:|
-| `PERFIL.valor` | 89 |
+| `LIMITE.aparelho_nao_cadastrado` | 102 |
 | `LIMITE.sem_geolocalizacao` | 83 |
-| `LIMITE.aparelho_nao_cadastrado` | 46 |
-| `CONTA_RECEBEDORA.suspeita_anterior` | 9 |
+| `PERFIL.valor` | 76 |
+| `RITMO.destinos_novos` | 8 |
 | `QUEM_OPERA.ip_compartilhado` | 7 |
 | `RITMO.velocidade` | 2 |
 | `QUEM_OPERA.canal_incomum` | 1 |
@@ -70,18 +72,18 @@ Latência gravada pelo motor (`latency_ms`), da chegada do Pix à decisão.
 
 | Caminho | Pix | % dos Pix | p50 | p95 | p99 |
 |---|---:|---:|---:|---:|---:|
-| rápido | 2831 | 40.9% | 35 ms | 48 ms | 59 ms |
-| profundo | 4084 | 59.1% | 37 ms | 52 ms | 61 ms |
+| rápido | 1977 | 28.6% | 97 ms | 266 ms | 390 ms |
+| profundo | 4938 | 71.4% | 84 ms | 227 ms | 324 ms |
 
 ## Escore de anomalia (modo sombra)
 
 | Tipologia | Pix com escore | Escore p50 | Escore p95 |
 |---|---:|---:|---:|
-| Clientes legítimos | 3802 | 0.452 | 0.568 |
-| Conta invadida | 103 | 0.610 | 0.676 |
-| Golpe | 29 | 0.583 | 0.633 |
-| Conta laranja | 44 | 0.575 | 0.609 |
-| Padrão novo (nenhuma regra cobre) | 106 | 0.621 | 0.647 |
+| Clientes legítimos | 4637 | 0.443 | 0.562 |
+| Conta invadida | 103 | 0.612 | 0.680 |
+| Golpe | 48 | 0.574 | 0.629 |
+| Conta laranja | 44 | 0.572 | 0.611 |
+| Padrão novo (nenhuma regra cobre) | 106 | 0.617 | 0.644 |
 
 ## Regras sozinhas × regras + ML
 
@@ -89,16 +91,16 @@ A mesma semente (2) com o ML em modo ativo (`ml_mode = active`): o escore soma p
 
 | | Regras sozinhas | Regras + ML (ativo) | Diferença |
 |---|---:|---:|---:|
-| Conta invadida — pego (Pix) | 51.5% | 51.5% | +0.0 p.p. |
-| Golpe — pego (Pix) | 37.5% | 37.5% | +0.0 p.p. |
-| Conta laranja — pego (Pix) | 70.5% | 70.5% | +0.0 p.p. |
-| Padrão novo (nenhuma regra cobre) — pego (Pix) | 0.0% | 3.8% | +3.8 p.p. |
-| Clientes legítimos — o ML pontuou (escore acima do corte) | — | 0.8% | — |
-| Conta invadida — o ML pontuou (escore acima do corte) | — | 50.5% | — |
+| Conta invadida — pego (Pix) | 63.1% | 63.1% | +0.0 p.p. |
+| Golpe — pego (Pix) | 43.8% | 43.8% | +0.0 p.p. |
+| Conta laranja — pego (Pix) | 100.0% | 100.0% | +0.0 p.p. |
+| Padrão novo (nenhuma regra cobre) — pego (Pix) | 0.0% | 2.8% | +2.8 p.p. |
+| Clientes legítimos — o ML pontuou (escore acima do corte) | — | 0.9% | — |
+| Conta invadida — o ML pontuou (escore acima do corte) | — | 51.5% | — |
 | Golpe — o ML pontuou (escore acima do corte) | — | 14.6% | — |
-| Conta laranja — o ML pontuou (escore acima do corte) | — | 4.5% | — |
-| Padrão novo (nenhuma regra cobre) — o ML pontuou (escore acima do corte) | — | 66.0% | — |
-| Legítimos — 2FA | 2.1% | 2.1% | +0.0 p.p. |
+| Conta laranja — o ML pontuou (escore acima do corte) | — | 6.8% | — |
+| Padrão novo (nenhuma regra cobre) — o ML pontuou (escore acima do corte) | — | 64.2% | — |
+| Legítimos — 2FA | 2.8% | 2.8% | +0.0 p.p. |
 | Legítimos — recusa | 0.0% | 0.0% | +0.0 p.p. |
 
 **Conclusão sobre o ML.** O ganho é pequeno. O escore separa: no modo sombra, o padrão novo tem escore mediano acima do corte (p99 dos legítimos do treino), e o ML pontua a maior parte desses Pix. Mas os pontos crescem com o escore e só chegam aos 60 (o corte de invasão, que pede biometria) com o escore 0,04 acima do corte; a maioria dos Pix de centavos ganha poucos pontos e segue aprovada. Nas fraudes que as regras já pegam, o ML não muda nada, e nos legítimos não acrescenta fricção. Recomendação: manter em sombra na entrega e, se o grupo quiser o modo ativo, discutir a escala de pontos (`score_span`) com estes números — sabendo que o cenário "padrão novo" foi desenhado por nós e que uma feature (destinos distintos em 24 h) entrou depois de o ML errar esse cenário no treino.
@@ -109,24 +111,24 @@ Treino: semente 1, só os Pix `sim-legit-`; avaliação: semente 2, que o modelo
 
 | Cenário | Situação | Pix | Aprovado | (dos quais com aviso) | 2FA | Recusado | Pego (Pix) | Pego (valor) |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
-| Clientes legítimos | `aluguel` | 154 | 66.2% | 20.1% | 33.8% | 0.0% | — | — |
+| Clientes legítimos | `aluguel` | 154 | 73.4% | 22.1% | 26.6% | 0.0% | — | — |
 | Clientes legítimos | `celular_novo` | 10 | 100.0% | 0.0% | 0.0% | 0.0% | — | — |
-| Clientes legítimos | `destino_novo` | 734 | 98.9% | 1.2% | 1.1% | 0.0% | — | — |
-| Clientes legítimos | `lojista` | 1097 | 99.8% | 0.1% | 0.2% | 0.0% | — | — |
+| Clientes legítimos | `destino_novo` | 734 | 97.5% | 1.5% | 2.5% | 0.0% | — | — |
+| Clientes legítimos | `lojista` | 1097 | 98.5% | 0.3% | 1.5% | 0.0% | — | — |
 | Clientes legítimos | `racha` | 929 | 100.0% | 0.0% | 0.0% | 0.0% | — | — |
-| Clientes legítimos | `rotina` | 3582 | 99.6% | 0.0% | 0.4% | 0.0% | — | — |
+| Clientes legítimos | `rotina` | 3582 | 98.6% | 0.4% | 1.4% | 0.0% | — | — |
 | Clientes legítimos | `salario` | 62 | 0.0% | 0.0% | 100.0% | 0.0% | — | — |
 | Clientes legítimos | `viagem` | 46 | 100.0% | 0.0% | 0.0% | 0.0% | — | — |
 | Conta invadida | `aparelho_novo` | 8 | 0.0% | 0.0% | 100.0% | 0.0% | 100.0% | 100.0% |
-| Conta invadida | `celular_roubado` | 30 | 66.7% | 0.0% | 33.3% | 0.0% | 33.3% | 89.3% |
+| Conta invadida | `celular_roubado` | 30 | 56.7% | 0.0% | 43.3% | 0.0% | 43.3% | 92.4% |
 | Conta invadida | `fora_da_zona` | 8 | 0.0% | 0.0% | 100.0% | 0.0% | 100.0% | 100.0% |
-| Conta invadida | `rajada` | 57 | 52.6% | 5.3% | 47.4% | 0.0% | 47.4% | 47.7% |
+| Conta invadida | `rajada` | 57 | 36.8% | 1.8% | 63.2% | 0.0% | 63.2% | 62.8% |
 | Golpe | `falsa_central` | 12 | 25.0% | 8.3% | 75.0% | 0.0% | 75.0% | 85.5% |
-| Golpe | `falsa_central_repetido` | 12 | 25.0% | 0.0% | 75.0% | 0.0% | 75.0% | 84.5% |
-| Golpe | `falso_investimento` | 24 | 100.0% | 4.2% | 0.0% | 0.0% | 0.0% | 0.0% |
-| Conta laranja | `repasse` | 18 | 0.0% | 0.0% | 38.9% | 61.1% | 100.0% | 100.0% |
-| Conta laranja | `vitima_para_laranja` | 26 | 50.0% | 0.0% | 34.6% | 15.4% | 50.0% | 66.7% |
-| Padrão novo (nenhuma regra cobre) | `centavos` | 106 | 96.2% | 0.0% | 3.8% | 0.0% | 3.8% | 5.3% |
+| Golpe | `falsa_central_repetido` | 12 | 16.7% | 0.0% | 83.3% | 0.0% | 83.3% | 89.6% |
+| Golpe | `falso_investimento` | 24 | 91.7% | 58.3% | 8.3% | 0.0% | 8.3% | 18.3% |
+| Conta laranja | `repasse` | 18 | 0.0% | 0.0% | 27.8% | 72.2% | 100.0% | 100.0% |
+| Conta laranja | `vitima_para_laranja` | 26 | 0.0% | 0.0% | 61.5% | 38.5% | 100.0% | 100.0% |
+| Padrão novo (nenhuma regra cobre) | `centavos` | 106 | 97.2% | 0.0% | 2.8% | 0.0% | 2.8% | 3.5% |
 
 ## Como reproduzir
 

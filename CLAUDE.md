@@ -285,6 +285,11 @@ ou mais; o parâmetro `new_client_min_account_age_days` saiu do seed).
 ## Ordem de trabalho
 
 - Fases 1 e 2: feitas (67 testes verdes em 17/10 15h). Antes de seguir, aplicar as revisões deste arquivo.
+- Fases 3 e 4: feitas. **Bateria de realidade (18/10, madrugada):** itens 1 a 10 feitos (193 testes verdes); os
+  números estão em `docs/bateria-realidade.md` e `docs/resultados-simulador.md`. Limitações que a bateria deixou:
+  o falso parente (F2) ainda passa para o cliente simulado cujo P95 de destinos novos já é alto; o celular roubado
+  que faz um Pix aprovado longe de casa "ensina" a zona habitual (o 2º Pix já não está longe); o teste de contas
+  (centavos) só o ML pegaria.
 - Fase 3: Regra 5 (aparelho compartilhado, viagem impossível, zona habitual, canal incomum, IP compartilhado),
   Regra 7 (repasse rápido, proximidade de conta marcada, conta pagadora recente), sinais restantes das Regras 2, 3 e 6,
   `latency_ms`. Cadeia de hashes por pagador fica por ÚLTIMO e é a primeira a cortar; se entrar, o README a descreve

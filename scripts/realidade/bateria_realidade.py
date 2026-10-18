@@ -424,13 +424,13 @@ def daily_life(clients, merchants, v):
     life("Conta aberta ontem: 2º Pix R$ 600",
          post(newbie, account(cpf(), years_ago(3)), 60000, D.replace(hour=11, minute=30), "dvc-novo1", geo=jitter(HOME, 2),
               prefix="l"),
-         "2FA (aparelho não cadastrado, Res. 402)")
+         "2FA (aparelho não cadastrado, Res. BCB 403)")
     stranger = {"doc": cpf(), "acc": {"branch": "0001", "number": acc_number(), "opening": years_ago(5), "ispb": None},
                 "home_ip": "189.8.8.8"}
     life("Cliente antigo do banco, desconhecido do motor, aparelho nunca visto: R$ 700",
          post(stranger, account(cpf(), years_ago(3)), 70000, D.replace(hour=11), "dvc-nunca-visto", geo=jitter(HOME, 2),
               prefix="l"),
-         "Res. 402 diz R$ 200 por Pix em aparelho não cadastrado")
+         "Res. BCB 403 diz R$ 200 por Pix em aparelho não cadastrado")
 
 
 # ───────────────────────── relatório ─────────────────────────

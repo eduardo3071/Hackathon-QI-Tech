@@ -186,19 +186,29 @@ def ml_scores(rows) -> list:
 
 
 FINDINGS = [
-    "**Salário que a empresa paga pelo internet banking pede 2FA** (`LIMITE.sem_geolocalizacao`): o computador da "
-    "empresa não manda geolocalização, e todo Pix acima de R$ 500 sem ela pede confirmação de limite.",
-    "**Aluguel no mês em que o motor ainda não conhece o destino.** O primeiro aluguel, 10x a mediana para um destino "
-    "novo, cai no segundo degrau do `PERFIL.valor` e pede 2FA com aviso de golpe. O cliente confirma, mas a "
-    "confirmação com aviso de golpe não torna o destino recorrente, e a `CONTA_RECEBEDORA.suspeita_anterior` pede "
-    "2FA de novo no mês seguinte: o aluguel da matriz de erros reais volta a ter fricção nesse caso.",
-    "**Falso investimento passa.** O primeiro Pix, pequeno e dentro do perfil, é aprovado e torna o destino "
-    "recorrente; os seguintes, maiores, ficam atenuados pelo \"destino já pago antes\".",
+    "**Cadastro do aparelho de todo cliente (de propósito, item 9 da bateria de realidade).** 64 dos 188 Pix "
+    "legítimos com 2FA são `device_registration`: o primeiro Pix acima de R$ 200 de cada cliente, de um aparelho "
+    "novo, pede biometria (a Res. BCB 403/2024 vale para todos). Em produção o motor nasce com a carga do histórico "
+    "e isso some.",
+    "**Salário que a empresa paga pelo internet banking pede 2FA** (62 Pix, todos): o computador da empresa não "
+    "manda geolocalização, e todo Pix acima de R$ 500 sem ela pede confirmação de limite "
+    "(`LIMITE.sem_geolocalizacao`). A `RITMO.destinos_novos` também dispara na folha (8 Pix: a empresa paga vários "
+    "funcionários que o motor nunca viu em 10 minutos), mas esses já pediam 2FA pelo limite.",
+    "**Aluguel ainda tem fricção.** 41 dos 154 Pix de aluguel (26,6%) pedem 2FA, e 35 deles têm `PERFIL.valor`: o "
+    "primeiro aluguel, 10x a mediana para um destino novo, cai no segundo degrau. A confirmação com aviso de golpe "
+    "não ensina o perfil nem torna o destino recorrente (item 1), mas a `CONTA_RECEBEDORA.suspeita_anterior` deixou "
+    "de punir o mês seguinte com valor parecido (item 3).",
+    "**Falso investimento deixou de passar 100%, mas ainda passa quase todo.** O destino só é recorrente com 2 Pix "
+    "em dias diferentes e valor até 1,5x o maior já pago (item 2): 2 dos 24 Pix pedem 2FA com aviso, e 58% saem "
+    "aprovados com aviso. O restante é Pix pequeno, dentro do perfil do cliente simulado.",
     "**Celular roubado: o Pix grande é sempre pego, os pequenos passam.** O Pix de teste de R$ 10 e a nova tentativa "
     "de R$ 199 cabem nos R$ 200 por Pix que o BCB permite em aparelho não cadastrado; a perda fica no teto diário.",
-    "**Rajada:** a velocidade só pede 2FA a partir do 5º Pix em 10 minutos; os 4 primeiros saem.",
+    "**Rajada:** a `RITMO.destinos_novos` (item 6) pede biometria a partir do 3º destino novo somando R$ 2.000, e a "
+    "velocidade a partir do 5º Pix em 10 minutos; os Pix de rajada pegos subiram de 47,4% para 63,2%.",
+    "**Latência depende da máquina.** Nesta rodada (Windows com Docker Desktop, código montado por volume) o p95 é de "
+    "algumas centenas de milissegundos, bem acima da rodada anterior, feita em outro ambiente. Não prometer "
+    "\"p95 abaixo de 100 ms\" sem medir na máquina da demonstração.",
 ]
-
 
 ML_CONCLUSION = [
     "**Conclusão sobre o ML.** O ganho é pequeno. O escore separa: no modo sombra, o padrão novo tem escore mediano "
