@@ -63,7 +63,8 @@ class TestConcurrency:
             "payee_account_number": RandomGenerator.generate_account_number(),
         }
         payloads = [
-            PayloadGenerator.create_pix_payload(**payee, amount=5000, transaction_date=DAY) for _index in range(6)
+            # R$ 250 cada: o fan-in só vale a partir de R$ 1.000 na janela.
+            PayloadGenerator.create_pix_payload(**payee, amount=25000, transaction_date=DAY) for _index in range(6)
         ]
 
         responses = send_in_parallel(payloads)

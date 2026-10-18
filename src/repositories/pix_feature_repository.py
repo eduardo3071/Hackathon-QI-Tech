@@ -136,6 +136,20 @@ class PixFeatureRepository:
         )
         return [row.payer_document_number for row in rows]
 
+    def sum_received(self, payee_document: str, start: datetime, end: datetime) -> int:
+        """Quanto este recebedor recebeu de OUTROS documentos na janela, com qualquer status (tentativas incluídas)."""
+        amount = (
+            self.session.query(func.coalesce(func.sum(PixTransaction.amount), 0))
+            .filter(
+                PixTransaction.payee_document_number == payee_document,
+                PixTransaction.payer_document_number != payee_document,
+                PixTransaction.transaction_date >= start,
+                PixTransaction.transaction_date <= end,
+            )
+            .scalar()
+        )
+        return int(amount)
+
     def count_credits(self, destination_account_id: int, status_enumerator: str) -> int:
         """Quantos Pix, com o status pedido, esta conta já recebeu."""
         return (

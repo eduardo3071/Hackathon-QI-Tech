@@ -45,7 +45,7 @@ Entrega: link do repositório no Slack (grupo da final) até **domingo 18/10, 12
   | Período de aprendizado: R$ 300; R$ 800 dez minutos depois; R$ 300 no dia seguinte, do mesmo aparelho novo | `approved`; `two_factor_required` (teto diário); `approved` |
   | Celular roubado: aparelho novo faz Pix de R$ 10 (aprovado) e, 3 minutos depois, R$ 5.000 para destino novo | o segundo é `two_factor_required` com `face_liveness` |
   | Carro usado: cliente com histórico paga R$ 35.000 de dia a conta aberta há 20 dias (primeiro crédito) | `two_factor_required` com aviso de golpe (não `rejected`) |
-  | Conta laranja: conta PF aberta há 10 dias recebe Pix de R$ 300 de 5 pagadores distintos em 1 h | o 5º é `rejected` (conta nova + fan-in) |
+  | Conta laranja: conta PF aberta há 10 dias recebe Pix de R$ 300 de 5 pagadores distintos em 1 h | o 4º (R$ 1.200 de 4 pagadores) é `rejected` (conta nova + fan-in; antes, o 5º) |
   | Reenvio do mesmo `id` com o CPF mascarado (`123.456.789-09` em vez de `12345678909`) | 200 com a análise gravada (não 409) |
   | Mesmo pagador reenvia o mesmo valor para o mesmo destino com `id` novo, 3 vezes em 5 min | conta como 1 tentativa na velocidade |
   | Celular novo pede 2FA (`face_liveness`), retorno `passed`, e 10 min depois manda R$ 800 do mesmo aparelho | o segundo não pede 2FA por aparelho |
@@ -246,6 +246,14 @@ pode ser nulo, `to_status_id`, `event_datetime`, `created_at`). Toda análise gr
 - Parâmetros em `rule_parameter` (`window_minutes: 10`, `min_count: 3`, `min_amount: 200000`).
 - Por quê: na "mão fantasma" (acesso remoto, 7 Pix em 6 minutos para destinos novos, do aparelho de sempre), 4 Pix e
   R$ 5.200 saíam antes de a velocidade (5º Pix) pedir 2FA.
+
+## Fan-in com valor mínimo e limite menor para conta nova (bateria de realidade, item 7)
+
+- `CONTA_RECEBEDORA.fan_in` só pontua se a **soma recebida na janela (1 h) for de R$ 1.000 ou mais** (`min_window_amount`),
+  e, para recebedor com **conta de menos de 30 dias**, o mínimo de pagadores distintos cai de 5 para **3**
+  (`new_account_min_distinct_payers`, `new_account_max_age_days`).
+- Por quê: a rifa da formatura (8 amigos mandando R$ 20 a uma conta de 12 dias) era RECUSADA (falso positivo), enquanto a
+  falsa venda e a laranja só travavam na 5ª vítima.
 
 ## Velocidade
 

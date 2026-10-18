@@ -133,6 +133,7 @@ class FeatureBuilder:
                 destination_account.id, AnalysisStatus.APPROVED
             ),
             payee_distinct_payers=self._distinct_payers(pix, params.of("CONTA_RECEBEDORA.fan_in")),
+            payee_window_received=self._window_received(pix, params.of("CONTA_RECEBEDORA.fan_in")),
             payee_prior_scam_step_ups=self._prior_scam_step_ups(
                 pix, destination_account, params.of("CONTA_RECEBEDORA.suspeita_anterior")
             ),
@@ -353,6 +354,17 @@ class FeatureBuilder:
         payers.add(pix["payer_document"])
 
         return len(payers)
+
+    def _window_received(self, pix: dict, parameters):
+        """Quanto este recebedor recebeu de terceiros na janela do fan-in, mais o valor deste Pix."""
+        if parameters is None:
+            return None
+
+        window_start = pix["transaction_date"] - timedelta(minutes=parameters["window_minutes"])
+
+        return pix["amount"] + self.pix_feature_repository.sum_received(
+            pix["payee_document"], window_start, pix["transaction_date"]
+        )
 
     def _prior_scam_step_ups(self, pix: dict, destination_account: Account, parameters):
         """Quantas vezes este pagador já tomou 2FA por suspeita de golpe para esta conta, na janela."""

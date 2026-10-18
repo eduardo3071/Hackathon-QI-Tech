@@ -85,11 +85,11 @@ class TestRuleContaRecebedoraFanIn:
     clássico de conta laranja. Só vale para PF: lojista recebe de muitos.
     """
 
-    def _payers_to(self, payee: dict, count: int) -> list:
-        """`count` pagadores diferentes, um por minuto, R$ 50 cada, de aparelhos novos."""
+    def _payers_to(self, payee: dict, count: int, amount: int = 25000) -> list:
+        """`count` pagadores diferentes, um por minuto, R$ 250 cada (o fan-in só vale com R$ 1.000 na janela)."""
         responses = []
         for minute in range(count):
-            responses.append(Scenario.send(**payee, amount=5000, transaction_date=shift_date(DAY, minutes=minute)))
+            responses.append(Scenario.send(**payee, amount=amount, transaction_date=shift_date(DAY, minutes=minute)))
 
         return responses
 
@@ -122,16 +122,20 @@ class TestRuleContaRecebedoraFanIn:
         assert "CONTA_RECEBEDORA.fan_in" in not_needed_signals(responses[5])
 
     def test_fan_in_to_a_new_account_is_rejected(self):
-        """Conta aberta há 7 dias recebendo de 5 pessoas na mesma hora: laranja (20 + 40)."""
+        """Conta aberta há 7 dias recebendo de 3 pessoas (R$ 1.050) na mesma hora: laranja (20 + 40).
+
+        Conta com menos de 30 dias converge com 3 pagadores, e não 5 (item 7
+        da bateria de realidade): antes, só o 5º pagador travava.
+        """
         new_account = self._old_person_account()
         new_account["payee_opening_date"] = SEVEN_DAYS_BEFORE
 
-        responses = self._payers_to(new_account, count=5)
+        responses = self._payers_to(new_account, count=4, amount=35000)
 
-        assert [response["status"] for response in responses[:4]] == ["approved"] * 4
-        assert responses[4]["status"] == "rejected"
-        assert responses[4]["metadata"]["typology"] == "mule_account"
-        assert responses[4]["metadata"]["scores"]["mule"] == 60
+        assert [response["status"] for response in responses[:2]] == ["approved"] * 2
+        assert responses[2]["status"] == "rejected"
+        assert responses[2]["metadata"]["typology"] == "mule_account"
+        assert responses[2]["metadata"]["scores"]["mule"] == 60
 
 
 def payee_credited_at(transaction_date: str) -> dict:

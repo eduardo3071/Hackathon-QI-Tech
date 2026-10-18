@@ -106,6 +106,45 @@ class TestRecurringDestinationNeedsRealHistory:
             assert pix["status"] == "approved", (month, pix["metadata"])
 
 
+class TestFanInNeedsMoneyAndFewerPayersForNewAccounts:
+    TWELVE_DAYS_BEFORE = "2026-10-05T09:00:00-03:00"
+
+    def _buyers(self, payee: dict, count: int, amount: int) -> list:
+        """`count` pagadores diferentes, um por minuto, cada um de um aparelho novo."""
+        return [
+            send(**payee, amount=amount, transaction_date=shift_date(DAY, minutes=minute)) for minute in range(count)
+        ]
+
+    def test_graduation_raffle_is_not_a_mule_account(self):
+        """Item 7 — a rifa da formatura: 8 amigos mandam R$ 20 a uma conta de 12 dias. Falso positivo antes (RECUSADA)."""
+        organizer = {**new_payee(opening_date=self.TWELVE_DAYS_BEFORE)}
+
+        responses = self._buyers(organizer, count=8, amount=2000)
+
+        assert [response["status"] for response in responses] == ["approved"] * 8
+        assert all(reason_for(response, "CONTA_RECEBEDORA.fan_in") is None for response in responses)
+
+    def test_fake_sale_is_rejected_at_the_third_buyer(self):
+        """A falsa venda: R$ 450 de cada comprador para uma conta de 12 dias. Antes, só travava na 5ª vítima."""
+        seller = {**new_payee(opening_date=self.TWELVE_DAYS_BEFORE)}
+
+        responses = self._buyers(seller, count=4, amount=45000)
+
+        assert [response["status"] for response in responses[:2]] == ["approved", "approved"]
+        assert responses[2]["status"] == "rejected", responses[2]["metadata"]
+        assert responses[2]["metadata"]["typology"] == "mule_account"
+        reason = reason_for(responses[2], "CONTA_RECEBEDORA.fan_in")
+        assert reason["observed"]["distinct_payers"] == 3
+
+    def test_old_account_still_needs_five_payers(self):
+        """Caso logo abaixo: conta antiga recebendo de 3 pagadores, mesmo somando R$ 1.350, não pontua fan-in."""
+        organizer = new_payee()
+
+        responses = self._buyers(organizer, count=3, amount=45000)
+
+        assert all(reason_for(response, "CONTA_RECEBEDORA.fan_in") is None for response in responses)
+
+
 class TestBurstToNewDestinations:
     def _client(self) -> dict:
         """Cliente de R$ 500 por dia: R$ 800 não está fora do perfil (até 5x a mediana)."""

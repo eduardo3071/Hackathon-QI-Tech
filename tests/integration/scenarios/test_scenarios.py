@@ -82,7 +82,11 @@ class TestEndToEndScenarios:
         assert response["metadata"]["scam_warning"] is True
 
     def test_mule_account(self):
-        """Conta PF de 10 dias recebe R$ 300 de 5 pagadores em 1 h: o 5º é recusado."""
+        """Conta PF de 10 dias recebe R$ 300 de 5 pagadores em 1 h: o 4º (R$ 1.200 de 4 pagadores) é recusado.
+
+        Conta nova converge com 3 pagadores e R$ 1.000 na janela (item 7 da
+        bateria de realidade); o 3º, com R$ 900, ainda não soma o piso.
+        """
         payee = {
             "payee_document": RandomGenerator.generate_cpf(),
             "payee_account_number": RandomGenerator.generate_account_number(),
@@ -94,7 +98,8 @@ class TestEndToEndScenarios:
             for index in range(5)
         ]
 
-        assert responses[4]["status"] == "rejected"
+        assert responses[2]["status"] == "approved"
+        assert responses[3]["status"] == "rejected"
 
     def test_replay_with_masked_cpf(self):
         payer_digits = re.sub(r"\D", "", RandomGenerator.generate_cpf())

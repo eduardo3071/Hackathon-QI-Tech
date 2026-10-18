@@ -87,6 +87,9 @@ class PixFeatures:
     payee_account_age_days: int
     payee_prior_approved_credits: int
     payee_distinct_payers: Optional[int]
+    # Quanto o recebedor recebeu de terceiros na mesma janela do fan-in,
+    # contando este Pix.
+    payee_window_received: Optional[int]
     payee_prior_scam_step_ups: Optional[int]
     # Dias desde o último crédito aprovado que a conta destino recebeu NA
     # NOSSA BASE; None se o motor nunca a viu receber.

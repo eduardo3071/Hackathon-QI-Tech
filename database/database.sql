@@ -377,9 +377,11 @@ CROSS JOIN (VALUES
     ('CONTA_RECEBEDORA.conta_nova',
      '{"max_account_age_days": 30, "points": 60, "age_only_points": 20}'),
 
-    -- Estimativa: 5 pagadores distintos em 1h para uma conta PF.
+    -- Estimativa: 5 pagadores distintos em 1h para uma conta PF, somando
+    -- R$ 1.000 ou mais (a rifa de 8 amigos com R$ 20 não é golpe). Para
+    -- conta com menos de 30 dias, bastam 3 pagadores.
     ('CONTA_RECEBEDORA.fan_in',
-     '{"window_minutes": 60, "min_distinct_payers": 5, "points": 40}'),
+     '{"window_minutes": 60, "min_distinct_payers": 5, "points": 40, "min_window_amount": 100000, "new_account_max_age_days": 30, "new_account_min_distinct_payers": 3}'),
 
     -- Estimativa: o pagador já tomou 2FA por suspeita de golpe para esta
     -- conta nos últimos 90 dias e o valor está fora do perfil → pontua

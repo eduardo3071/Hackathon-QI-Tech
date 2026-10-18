@@ -5,6 +5,7 @@ from controllers.rules.perfil_rule import PerfilRule
 from controllers.rules.policy_parameters import PolicyParameters
 from controllers.rules.signal_result import APP, MULE, PASS, WARN, SignalResult
 from models import Account
+from utils.money import format_brl
 
 NEW_ACCOUNT = "CONTA_RECEBEDORA.conta_nova"
 FAN_IN = "CONTA_RECEBEDORA.fan_in"
@@ -103,19 +104,31 @@ class ContaRecebedoraRule(BaseRule):
         if features.payee_type != Account.PERSON:
             return self.not_needed(FAN_IN, 1, "Recebedor PJ: lojista recebe de muitos pagadores.")
 
+        # Conta nova converge com menos pagadores: a falsa venda e a laranja
+        # recém-aberta só travavam na 5ª vítima. E o valor conta: 8 amigos
+        # mandando R$ 20 a uma rifa são R$ 160, não um golpe.
         min_distinct_payers = parameters["min_distinct_payers"]
+        if features.payee_account_age_days < parameters["new_account_max_age_days"]:
+            min_distinct_payers = parameters["new_account_min_distinct_payers"]
+
         distinct_payers = features.payee_distinct_payers
+        window_amount = features.payee_window_received
+        min_window_amount = parameters["min_window_amount"]
 
-        observed = {"distinct_payers": distinct_payers}
-        threshold = {"min_distinct_payers": min_distinct_payers, "window_minutes": parameters["window_minutes"]}
+        observed = {"distinct_payers": distinct_payers, "window_amount": window_amount}
+        threshold = {
+            "min_distinct_payers": min_distinct_payers,
+            "min_window_amount": min_window_amount,
+            "window_minutes": parameters["window_minutes"],
+        }
 
-        if distinct_payers >= min_distinct_payers:
+        if distinct_payers >= min_distinct_payers and window_amount >= min_window_amount:
             return self.result(
                 FAN_IN,
                 1,
                 WARN,
-                f"{distinct_payers} pagadores diferentes enviaram para esta pessoa física em "
-                f"{parameters['window_minutes']} minutos.",
+                f"{distinct_payers} pagadores diferentes enviaram {format_brl(window_amount)} para esta pessoa "
+                f"física em {parameters['window_minutes']} minutos.",
                 typology=MULE,
                 points=parameters["points"],
                 observed=observed,
