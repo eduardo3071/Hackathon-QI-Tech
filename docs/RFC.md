@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |---|---|
-| Grupo | 47 |
+| Grupo | 17 |
 | Time | Eduardo Oliveira Rodrigues Cardoso · Ingrid Carvalho Godoy |
 | Data | 17/10/2026 (versão 1) · 18/10/2026 (versão 2) |
 | Versão | 2 |

@@ -1,4 +1,4 @@
-# Motor Antifraude Pix — Hackathon QI Tech 2026 (Grupo 47)
+# Motor Antifraude Pix — Hackathon QI Tech 2026 (Grupo 17)
 
 API que recebe um Pix e devolve `approved`, `two_factor_required` ou `rejected`, com motivo explicável.
 Entrega: link do repositório no Slack (grupo da final) até **domingo 18/10, 12h**. Código congela às 10h30.

@@ -1,4 +1,4 @@
-# Grupo 47 — Motor Antifraude Pix
+# Grupo 17 — Motor Antifraude Pix
 
 **Integrantes:** Eduardo Oliveira Rodrigues Cardoso · Ingrid Carvalho Godoy
 
