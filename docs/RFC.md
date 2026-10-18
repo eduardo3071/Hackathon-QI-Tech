@@ -255,7 +255,7 @@ erDiagram
 5. Perfil só com Pix aprovados e limpos: tentativa recusada e golpe confirmado não ensinam o motor.
 6. Parâmetros no banco, com fonte ou marcados como estimativa: dá para calibrar sem mudar código.
 
-Os testes por HTTP provam com cenários (211 testes): dez Pix simultâneos do mesmo pagador decidem como em fila; seis pagadores ao mesmo tempo para a mesma conta PF contam todos no fan-in.
+Os testes por HTTP provam com cenários (212 testes): dez Pix simultâneos do mesmo pagador decidem como em fila; seis pagadores ao mesmo tempo para a mesma conta PF contam todos no fan-in.
 
 ## Resultados e limitações (versão 2)
 

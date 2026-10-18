@@ -1,4 +1,4 @@
-# Grupo 17 — Motor Antifraude Pix
+# Grupo 17 — Triagem AI: motor antifraude Pix
 
 **Integrantes:** Eduardo Oliveira Rodrigues Cardoso · Ingrid Carvalho Godoy
 
@@ -176,6 +176,9 @@ Tiradas da bateria de realidade (`docs/bateria-realidade.md`), que encena 12 gol
 | **Falso parente** (conta de 15 dias, R$ 1.890 e R$ 2.300) | **Resolvido na bateria:** os dois pedem 2FA com aviso de golpe (`CONTA_RECEBEDORA.primeiro_pix_alto`). Continua aberto o falso parente que usa conta com mais de 30 dias, ou valor abaixo de R$ 1.000 | Calibrar a idade e o piso com o resultado real do 2FA |
 | **Celular roubado na rua** (23h, 9 km de casa) | **Resolvido na bateria:** o 1º Pix (R$ 900) sai, e os seguintes, para destinos novos, são recusados (`LIMITE.noturno_fora_de_casa`); para destino recorrente, o 2º pede biometria, porque o local do Pix aprovado na rua só vira habitual 24 h depois. Continua aberto o ladrão que fica perto da casa da vítima | Device Scan e biometria comportamental |
 | **Coação** (sequestro relâmpago) | **Coberta à noite, longe de casa, para destino novo:** o 2º Pix de R$ 1.000 é recusado — a vítima coagida passaria no 2FA. Continua aberta a coação perto de casa e para destino recorrente | No app: senha de coação, que parece funcionar mas trava a operação; lugares seguros cadastrados pelo cliente, fora deles o limite cai; pedido de aumento de limite com 24 h de espera |
+| **Coação com geolocalização desligada** | Sem geolocalização, o `LIMITE.noturno_fora_de_casa` sai `not_evaluated`, e a coação à noite cai em 2FA de limite, não em recusa — a vítima coagida passa nesse 2FA | Tratar a falta de geolocalização à noite, para destino novo, como agravante (limite noturno menor), sem recusar em silêncio |
+| **Limite noturno configurado pelo cliente** | A regra de coação usa o teto da Res. BCB 142 (R$ 1.000); o motor não conhece o limite noturno que o cliente configurou no app | Receber o limite configurado no payload (ou de uma consulta interna ao core) e usá-lo no lugar do teto padrão |
+| **CNPJ alfanumérico** | O schema aceita só documentos com dígitos; o CNPJ alfanumérico da Receita Federal ainda não é aceito | Aceitar letras nas 12 primeiras posições do CNPJ no schema e no cálculo do dígito verificador |
 | **Teste de contas** (25 Pix de R$ 0,01) | Todos aprovados; só o ML pegaria, e em modo sombra ele só registra | Decidir, com dados reais, se o modo ativo entra e com que escala de pontos |
 | **Ladrão que espera 24 h** | Se ele espera o aparelho "esfriar" e faz Pix pequenos, o aparelho vira confiável | Aumentar o tempo de confiança para clientes de alto valor, ou exigir biometria para o 1º Pix acima de R$ 1.000 |
 | **Golpe sem sinal no contrato** | Ligação em andamento e app de acesso remoto instalado não chegam no payload | SDK no app e sinais do Device Scan |
@@ -216,7 +219,7 @@ Reproduzir:
 
 ```bash
 python scripts/simulator/prepare_db.py --ml-mode shadow   # APAGA o banco
-python scripts/simulator/run.py --seed 2 --output scripts/simulator/output/regras.jsonl   # ~25 min
+python scripts/simulator/run.py --seed 2 --output scripts/simulator/output/regras.jsonl   # 586 s nesta rodada; varia com a máquina
 python scripts/simulator/report.py scripts/simulator/output/regras.jsonl
 python scripts/realidade/bateria_realidade.py 2026       # ~20 min, contra um banco recriado
 ```
@@ -337,7 +340,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-No Windows, o endereço `0.0.0.0` não conecta: crie o `.env` (`copy .env.example .env`) e troque `SERVER_LOCALHOST=0.0.0.0` por `SERVER_LOCALHOST=127.0.0.1`. Se a porta 5432 ou 3000 já estiver ocupada (um Postgres local, por exemplo), ponha `DB_PORT=5433` ou `API_PORT=3001` no `.env` e ajuste a `DATABASE_URL`. A suíte inteira leva de 2 a 4 minutos (depende da máquina) e termina com **211 passed**.
+No Windows, o endereço `0.0.0.0` não conecta: crie o `.env` (`copy .env.example .env`) e troque `SERVER_LOCALHOST=0.0.0.0` por `SERVER_LOCALHOST=127.0.0.1`. Se a porta 5432 ou 3000 já estiver ocupada (um Postgres local, por exemplo), ponha `DB_PORT=5433` ou `API_PORT=3001` no `.env` e ajuste a `DATABASE_URL`. A suíte inteira leva de 2 a 4 minutos (depende da máquina) e termina com **212 passed**.
 
 ### Mudou o `database/database.sql`?
 

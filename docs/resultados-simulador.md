@@ -91,7 +91,7 @@ Latência gravada pelo motor (`latency_ms`), da chegada do Pix à decisão.
 
 ## Regras sozinhas × regras + ML (rodada anterior, item 10 da bateria)
 
-A mesma semente (2) com o ML em modo ativo (`ml_mode = active`): o escore soma pontos de invasão, com teto, e nunca recusa sozinho.
+**Tabela da rodada anterior** (antes dos ajustes finais de 18/10; não foi refeita). A mesma semente (2) com o ML em modo ativo (`ml_mode = active`): o escore soma pontos de invasão, com teto, e nunca recusa sozinho.
 
 | | Regras sozinhas | Regras + ML (ativo) | Diferença |
 |---|---:|---:|---:|
@@ -111,7 +111,7 @@ A mesma semente (2) com o ML em modo ativo (`ml_mode = active`): o escore soma p
 
 Treino: semente 1, só os Pix `sim-legit-`; avaliação: semente 2, que o modelo não viu.
 
-### Por cenário, com o ML ativo
+### Por cenário, com o ML ativo (rodada anterior)
 
 | Cenário | Situação | Pix | Aprovado | (dos quais com aviso) | 2FA | Recusado | Pego (Pix) | Pego (valor) |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
