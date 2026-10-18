@@ -485,6 +485,13 @@ CROSS JOIN (VALUES
     ('PERFIL.escalada',
      '{"window_days": 7, "min_previous_pix": 2, "min_multiple_of_first": 3, "high_min_amount": 30000, "high_points": 60, "points": 40, "company_min_account_age_days": 365}'),
 
+    -- Res. BCB 142 (norma: R$ 1.000 à noite, PF→PF; aumento só 24 h depois
+    -- do pedido) aplicada sem exceção quando o Pix é para destino novo e a
+    -- mais de 5 km (estimativa) de todos os locais habituais: recusa. É o
+    -- contexto de coação, em que a vítima passa no próprio 2FA.
+    ('LIMITE.noturno_fora_de_casa',
+     '{"min_distance_km": 5}'),
+
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
     -- diferentes: um sinal sozinho não é "risco claro". Todo 2FA vira

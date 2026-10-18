@@ -187,3 +187,82 @@ class TestFalsoInvestimentoEscalada:
         responses = sequence(client, broker, [15000, 30000, 50000], "2026-10-10T19:00:00-03:00")
 
         assert "PERFIL.escalada" in not_needed_signals(responses[2])
+
+
+COERCION_NIGHT = "2026-10-17T22:30:00-03:00"
+SIGNAL = "LIMITE.noturno_fora_de_casa"
+
+
+def not_evaluated_signals(response: dict) -> list:
+    return [item["signal"] for item in response["metadata"]["not_evaluated"]]
+
+
+def night_pix(client: dict, payee: dict, minutes: int, geolocation=FIFTEEN_KM_AWAY, with_geolocation=True) -> dict:
+    return Scenario.send(
+        payer_document=client["payer_document"], device_id=client["device_id"], **payee, amount=100000,
+        geolocation=geolocation, with_geolocation=with_geolocation, transaction_date=shift_date(COERCION_NIGHT, minutes=minutes),
+    )
+
+
+class TestNoturnoForaDeCasa:
+    """Item 5b — LIMITE.noturno_fora_de_casa: o teto noturno da Res. BCB 142 sem exceção, no contexto de coação (F8)."""
+
+    def test_kidnapping_second_pix_is_rejected(self):
+        """Aparelho de sempre, 22h30, a 15 km de casa, 3 Pix de R$ 1.000 para destinos novos."""
+        client = client_at_home()
+
+        first = night_pix(client, new_person_account("2020-01-10T10:00:00-03:00"), 0)
+        second = night_pix(client, new_person_account("2020-01-10T10:00:00-03:00"), 3)
+
+        assert first["status"] == "approved", first
+        assert second["status"] == "rejected"
+        assert second["metadata"]["recommended_action"] == "block"
+        reason = reason_for(second, SIGNAL)
+        assert reason["outcome"] == "reject"
+        assert "Res. BCB 142 vale sem exceção" in reason["message"]
+
+    def test_near_home_keeps_the_limit_two_factor(self):
+        client = client_at_home()
+
+        night_pix(client, new_person_account("2020-01-10T10:00:00-03:00"), 0, geolocation=TWO_KM_AWAY)
+        second = night_pix(client, new_person_account("2020-01-10T10:00:00-03:00"), 3, geolocation=TWO_KM_AWAY)
+
+        assert second["status"] == "two_factor_required"
+        assert second["metadata"]["step_up_reason"] == "limit"
+        assert reason_for(second, SIGNAL) is None
+
+    def test_recurring_destination_is_not_rejected(self):
+        client = client_at_home()
+
+        night_pix(client, new_person_account("2020-01-10T10:00:00-03:00"), 0)
+        second = night_pix(client, client["usual_payee"], 3)
+
+        assert second["status"] != "rejected"
+        assert reason_for(second, SIGNAL) is None
+
+    def test_person_to_company_is_not_needed(self):
+        client = client_at_home()
+        shop = {
+            "payee_document": RandomGenerator.generate_cnpj(),
+            "payee_account_number": RandomGenerator.generate_account_number(),
+        }
+
+        night_pix(client, new_person_account("2020-01-10T10:00:00-03:00"), 0)
+        second = night_pix(client, shop, 3)
+
+        assert SIGNAL in not_needed_signals(second)
+
+    def test_payer_without_a_24h_old_location_is_not_evaluated(self):
+        client = {"payer_document": RandomGenerator.generate_cpf(), "device_id": f"dvc-{uuid4().hex[:12]}"}
+        Scenario.send(**client, amount=15000, geolocation=HOME, transaction_date=shift_date(COERCION_NIGHT, hours=-3))
+
+        response = night_pix(client, new_person_account("2020-01-10T10:00:00-03:00"), 0)
+
+        assert SIGNAL in not_evaluated_signals(response)
+
+    def test_without_geolocation_is_not_evaluated(self):
+        client = client_at_home()
+
+        response = night_pix(client, new_person_account("2020-01-10T10:00:00-03:00"), 0, with_geolocation=False)
+
+        assert SIGNAL in not_evaluated_signals(response)

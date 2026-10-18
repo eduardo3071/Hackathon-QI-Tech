@@ -93,6 +93,8 @@ A decisão segue isso à risca:
    - placar `mule` acima do corte **E pelo menos dois sinais de conta laranja diferentes** disparados
      (ex.: conta nova + fan-in; conta nova + repasse rápido);
    - `RASTRO.proximidade_marcada` a 1 salto (Fase 3).
+   - `LIMITE.noturno_fora_de_casa` (18/10): Pix noturno PF→PF para destino novo, a mais de 5 km de todos os locais
+     habituais, com a soma noturna acima de R$ 1.000 — o teto da Res. BCB 142 sem exceção no contexto de coação.
    Um sinal de conta laranja sozinho, por mais pontos que tenha, **não recusa**.
    O repasse rápido (`RASTRO.repasse_rapido`) é sinal de conta laranja e pontua `mule`; ele NÃO recusa sozinho.
    Sozinho leva a 2FA (`possible_scam`). Junto com outro sinal de laranja diferente, recusa pela regra dos dois sinais.
@@ -305,6 +307,18 @@ ou mais; o parâmetro `new_client_min_account_age_days` saiu do seed).
 - Mesma titularidade e recebedor PJ com conta de 1 ano ou mais → `not_needed` (uma corretora de verdade é PJ antiga).
 - Olha a sequência, não o perfil: no simulador, cada Pix do falso investimento parecia normal sozinho.
 - Parâmetros em `rule_parameter` (estimativas).
+
+## Coação — `LIMITE.noturno_fora_de_casa` (Regra 2, camada 0; decisão de 18/10) → `rejected`
+
+- Dispara com tudo junto: noturno (20h–6h, Brasília); PF→PF entre pessoas distintas; destino novo (não recorrente);
+  a mais de 5 km de todos os locais habituais (Pix aprovados há pelo menos 24 h); soma noturna com o Pix atual acima
+  de R$ 1.000. Resposta: `rejected`, `typology: coercion`, `recommended_action: block`.
+- Por quê: é o teto da Res. BCB 142 sem exceção no contexto de coação (sequestro relâmpago, F8 da bateria): a vítima
+  coagida passa na própria biometria, e a norma diz que aumento de limite só vale 24 h depois do pedido.
+- Sem geolocalização, ou sem nenhum local habitual, `not_evaluated`. PF→PJ e mesma titularidade → `not_needed`.
+- Efeito no F6 (celular roubado na rua, Pix para destinos novos): o 2º Pix passa a ser recusado por este sinal, e
+  não mais confirmado no app. Para destino recorrente, o 2º Pix pede biometria (local habitual só depois de 24 h).
+- Continua aberto: coação perto de casa e para destino recorrente.
 
 ## Velocidade
 

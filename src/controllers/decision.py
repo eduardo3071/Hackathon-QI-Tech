@@ -10,6 +10,9 @@ FRAUD_MARKER = "fraud_marker"
 ACCOUNT_TAKEOVER = "account_takeover"
 APP_SCAM = "app_scam"
 MULE_ACCOUNT = "mule_account"
+# Pix noturno longe de casa para destino novo, acima do teto da Res. BCB
+# 142: o contexto do sequestro relâmpago.
+COERCION = "coercion"
 
 # A ação recomendada de cada desfecho.
 NONE = "none"
@@ -52,8 +55,9 @@ class DecisionMaker:
 
       • `rejected` só com evidência dura — marcação de fraude, conta sendo
         esvaziada (velocidade no corte de recusa), recebedor pago por conta
-        marcada nas últimas 24 h, ou conta laranja vista por DOIS sinais
-        diferentes. Um sinal de laranja sozinho, por mais
+        marcada nas últimas 24 h, conta laranja vista por DOIS sinais
+        diferentes, ou Pix noturno longe de casa para destino novo acima do
+        teto da Res. BCB 142 (coação). Um sinal de laranja sozinho, por mais
         pontos que tenha, é dúvida: pode ser o vendedor de carro usado que
         acabou de abrir conta;
       • `two_factor_required` quando há dúvida, dizendo POR QUE e COMO;
@@ -92,6 +96,9 @@ class DecisionMaker:
         # salto) tem a tipologia dela; a que sobra é a conta sendo esvaziada.
         if any(result.typology == MULE for result in hard_rejects):
             return Decision(AnalysisStatus.REJECTED, MULE_ACCOUNT, BLOCK, scores)
+
+        if any(result.signal_code == "LIMITE.noturno_fora_de_casa" for result in hard_rejects):
+            return Decision(AnalysisStatus.REJECTED, COERCION, BLOCK, scores)
 
         if hard_rejects:
             return Decision(AnalysisStatus.REJECTED, ACCOUNT_TAKEOVER, BLOCK, scores)

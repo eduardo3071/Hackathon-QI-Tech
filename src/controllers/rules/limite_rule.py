@@ -1,13 +1,14 @@
 from controllers.features import PixFeatures
 from controllers.rules.base_rule import BaseRule
 from controllers.rules.policy_parameters import PolicyParameters
-from controllers.rules.signal_result import ATO, PASS, TWO_FACTOR, SignalResult
+from controllers.rules.signal_result import ATO, NOT_EVALUATED, PASS, REJECT, TWO_FACTOR, SignalResult
 from models import Account
 from utils.money import format_brl
 
 UNREGISTERED_DEVICE = "LIMITE.aparelho_nao_cadastrado"
 NIGHT = "LIMITE.noturno"
 NO_GEOLOCATION = "LIMITE.sem_geolocalizacao"
+NIGHT_AWAY_FROM_HOME = "LIMITE.noturno_fora_de_casa"
 
 
 class LimiteRule(BaseRule):
@@ -24,6 +25,7 @@ class LimiteRule(BaseRule):
         self.signals = {
             UNREGISTERED_DEVICE: (0, self._evaluate_unregistered_device),
             NIGHT: (0, self._evaluate_night),
+            NIGHT_AWAY_FROM_HOME: (0, self._evaluate_night_away_from_home),
             NO_GEOLOCATION: (1, self._evaluate_no_geolocation),
         }
 
@@ -175,6 +177,73 @@ class LimiteRule(BaseRule):
             1,
             PASS,
             "Pix sem geolocalização, dentro do limite reduzido.",
+            observed=observed,
+            threshold=threshold,
+        )
+
+    def _evaluate_night_away_from_home(
+        self, features: PixFeatures, parameters: dict, params: PolicyParameters
+    ) -> SignalResult:
+        """Pix noturno PF→PF para destino novo, longe dos locais habituais, passando de R$ 1.000: recusa.
+
+        É o teto da Res. BCB 142 aplicado sem exceção no contexto de coação
+        (sequestro relâmpago). Ali o 2FA não protege: a vítima coagida passa
+        na própria biometria. E a norma diz que aumento de limite só vale
+        24 h depois do pedido — um 2FA não pode funcionar como aumento
+        imediato. Os locais habituais são os de Pix aprovados há pelo menos
+        24 h. Sem geolocalização, ou sem nenhum local habitual, não decide.
+        """
+        night_parameters = params.of(NIGHT)
+        min_distance = parameters["min_distance_km"]
+
+        if night_parameters is None or not features.is_night:
+            return self.result(NIGHT_AWAY_FROM_HOME, 0, PASS, "Fora do período noturno (horário de Brasília).")
+
+        if features.same_ownership:
+            return self.not_needed(NIGHT_AWAY_FROM_HOME, 0, "Mesma titularidade: o dinheiro não sai do titular.")
+
+        if features.payer_type != Account.PERSON or features.payee_type != Account.PERSON:
+            return self.not_needed(NIGHT_AWAY_FROM_HOME, 0, "O limite noturno da Res. BCB 142 é para Pix entre pessoas físicas.")
+
+        max_night = night_parameters["max_night_amount"]
+        night_amount = features.night_person_to_person_amount + features.amount
+        threshold = {"min_distance_km": min_distance, "max_night_amount": max_night}
+
+        if not features.has_geolocation:
+            return self.result(NIGHT_AWAY_FROM_HOME, 0, NOT_EVALUATED, "Pix sem geolocalização.", threshold=threshold)
+
+        if features.habitual_nearest_km is None:
+            return self.result(
+                NIGHT_AWAY_FROM_HOME, 0, NOT_EVALUATED,
+                "O pagador não tem local de Pix aprovado há pelo menos 24 h para comparar.", threshold=threshold,
+            )
+
+        observed = {
+            "night_amount": night_amount,
+            "habitual_nearest_km": features.habitual_nearest_km,
+            "destination_recurring": features.destination_recurring,
+        }
+
+        if (
+            not features.destination_recurring
+            and features.habitual_nearest_km > min_distance
+            and night_amount > max_night
+        ):
+            return self.result(
+                NIGHT_AWAY_FROM_HOME,
+                0,
+                REJECT,
+                "Pix noturno acima de R$ 1.000 para destino novo, longe dos locais habituais: o limite noturno da "
+                "Res. BCB 142 vale sem exceção; aumento de limite só vale 24 h depois de pedido no app",
+                observed=observed,
+                threshold=threshold,
+            )
+
+        return self.result(
+            NIGHT_AWAY_FROM_HOME,
+            0,
+            PASS,
+            "Destino recorrente, perto dos locais habituais, ou soma noturna dentro de R$ 1.000.",
             observed=observed,
             threshold=threshold,
         )

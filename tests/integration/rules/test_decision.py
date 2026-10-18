@@ -163,6 +163,7 @@ class TestDecisionLayers:
             "ANOMALIA.ml",
             "CONTA_RECEBEDORA.primeiro_pix_alto",
             "PERFIL.escalada",
+            "LIMITE.noturno_fora_de_casa",
         }
 
     def test_rejected_pix_is_recorded_and_consultable(self):
