@@ -387,3 +387,47 @@ class TestRuleLimiteSemGeolocalizacao:
         response = Scenario.send(**context, amount=50001, transaction_date=DAY)
 
         assert reason_for(response, "LIMITE.sem_geolocalizacao") is None
+
+
+class TestRuleLimiteSemGeolocalizacaoEmpresa:
+    """LIMITE.sem_geolocalizacao não vale para a empresa no aparelho e no canal de sempre.
+
+    A empresa paga a folha pelo internet banking do computador, que não manda
+    geolocalização. A IN BCB 669 PERMITE um limite menor sem geolocalização,
+    não obriga: com o aparelho confiável para a empresa e um canal que ela já
+    usou num Pix aprovado, o sinal sai `not_needed`.
+    """
+
+    def _company_with_trusted_device(self) -> dict:
+        context = {"payer_document": RandomGenerator.generate_cnpj(), "device_id": new_device()}
+        Scenario.register_device(context["payer_document"], context["device_id"], shift_date(DAY, hours=-1))
+
+        return context
+
+    def test_company_with_trusted_device_and_usual_channel_pays_without_geolocation(self):
+        context = self._company_with_trusted_device()
+
+        response = Scenario.send(**context, amount=500000, with_geolocation=False, transaction_date=DAY)
+
+        assert response["status"] == "approved"
+        assert "LIMITE.sem_geolocalizacao" in not_needed_signals(response)
+
+    def test_person_without_geolocation_still_requires_limit_two_factor(self):
+        context = known_device()
+
+        response = Scenario.send(**context, amount=60000, with_geolocation=False, transaction_date=DAY)
+
+        assert response["status"] == "two_factor_required"
+        assert reason_for(response, "LIMITE.sem_geolocalizacao")["outcome"] == "two_factor"
+
+    def test_company_on_a_new_device_without_geolocation_still_requires_two_factor(self):
+        context = self._company_with_trusted_device()
+
+        response = Scenario.send(
+            payer_document=context["payer_document"], device_id=new_device(), amount=500000,
+            with_geolocation=False, transaction_date=DAY,
+        )
+
+        assert response["status"] == "two_factor_required"
+        assert "LIMITE.sem_geolocalizacao" not in not_needed_signals(response)
+        assert reason_for(response, "LIMITE.sem_geolocalizacao")["outcome"] == "two_factor"

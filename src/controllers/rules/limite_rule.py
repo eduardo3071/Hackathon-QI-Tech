@@ -148,6 +148,17 @@ class LimiteRule(BaseRule):
                 NO_GEOLOCATION, 1, PASS, "Pix com geolocalização.", observed=observed, threshold=threshold
             )
 
+        # A empresa que paga a folha pelo internet banking do computador não
+        # manda geolocalização. A IN BCB 669 PERMITE o limite menor, não
+        # obriga: no aparelho confiável dela e num canal que ela já usou num
+        # Pix aprovado, o limite reduzido não se aplica.
+        if features.payer_type == Account.COMPANY and features.device_trusted and features.channel_used_before:
+            return self.not_needed(
+                NO_GEOLOCATION,
+                1,
+                "Pagador PJ no aparelho confiável e no canal de sempre: o limite reduzido sem geolocalização não se aplica.",
+            )
+
         if features.amount > max_amount:
             return self.result(
                 NO_GEOLOCATION,

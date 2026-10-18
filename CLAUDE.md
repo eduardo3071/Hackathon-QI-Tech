@@ -270,6 +270,14 @@ ou mais; o parâmetro `new_client_min_account_age_days` saiu do seed).
   `PERFIL.valor` pontua no máximo a faixa de aviso (`app_points`, 40): `approved` com `warn`, nunca 2FA sozinho.
 - Por quê: uma TV de R$ 3.500 na Black Friday, numa loja com CNPJ de 12 anos, pedia 2FA com aviso de golpe.
 
+## Sem geolocalização: a empresa no aparelho e no canal de sempre (decisão de 18/10)
+
+- `LIMITE.sem_geolocalizacao` sai `not_needed` quando o pagador é PJ (CNPJ), o aparelho é confiável para ele e o
+  canal já foi usado num Pix aprovado desse pagador. A IN BCB 669 permite limite menor sem geolocalização, não obriga.
+- Por quê: no simulador, 100% dos Pix de salário pediam 2FA (a empresa paga pelo internet banking do computador).
+- PF sem geolocalização, e PJ em aparelho novo, continuam com o limite reduzido. `RITMO.destinos_novos` não muda: a
+  primeira folha para funcionários novos continua pedindo biometria uma vez, de propósito.
+
 ## Velocidade
 
 - Reenvio com `id` novo, mesmo pagador, mesmo recebedor e mesmo valor dentro da janela conta como **uma** tentativa.
