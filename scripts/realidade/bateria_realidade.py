@@ -24,6 +24,8 @@ import requests
 
 BASE = os.environ.get("BATERIA_API", "http://127.0.0.1:3000")
 OUTPUT = sys.argv[2] if len(sys.argv) > 2 else "docs/bateria-realidade.md"
+# Onde a bateria rodou, para o rótulo da latência (ex.: "Docker Desktop, Windows 11").
+AMBIENTE = os.environ.get("BATERIA_AMBIENTE", "não informado (defina BATERIA_AMBIENTE)")
 H = {"INTERNAL-TOKEN": "default_token"}
 BRT = timezone(timedelta(hours=-3))
 SEED = int(sys.argv[1]) if len(sys.argv) > 1 else 2026
@@ -479,7 +481,7 @@ def main():
         out.append(f"\n**Clientes legítimos RECUSADOS: {len(rejected_legit)}**")
         for w, r, a in rejected_legit[:8]:
             out.append(f"- {w:%d/%m %Hh%M} R$ {a/100:,.2f}: {signals(r)}")
-    out.append(f"\n**Latência (HTTP de ponta a ponta, sem Docker):** caminho rápido p50 {q(fast,50):.0f} ms / p95 {q(fast,95):.0f} ms "
+    out.append(f"\n**Latência (HTTP de ponta a ponta; ambiente: {AMBIENTE}):** caminho rápido p50 {q(fast,50):.0f} ms / p95 {q(fast,95):.0f} ms "
                f"/ p99 {q(fast,99):.0f} ms ({len(fast)} Pix); caminho profundo p50 {q(deep,50):.0f} ms / p95 {q(deep,95):.0f} ms "
                f"/ p99 {q(deep,99):.0f} ms ({len(deep)} Pix). Caminho rápido: {pct(len(fast), len(fast)+len(deep))} dos Pix.\n")
 
