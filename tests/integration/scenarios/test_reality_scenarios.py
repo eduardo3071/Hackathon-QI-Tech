@@ -69,6 +69,43 @@ def send_and_confirm_if_asked(**payload) -> dict:
     return pix
 
 
+class TestRecurringDestinationNeedsRealHistory:
+    def test_fake_investment_growing_amounts_asks_two_factor(self):
+        """Item 2 — falso investimento: R$ 500, R$ 1.000, R$ 3.000 e R$ 8.000 ao mesmo destino em 8 dias.
+
+        Antes, um único Pix aprovado já tornava o destino "recorrente" e
+        desligava o PERFIL.valor: tudo saía `approved` sem aviso. Agora o
+        destino só é recorrente com 2 ou mais Pix aprovados em dias
+        diferentes e valor atual de no máximo 1,5x o maior já pago a ele.
+        """
+        client = client_with_history()
+        origin = {"payer_document": client["payer_document"], "device_id": client["device_id"]}
+        investment = new_payee()
+
+        responses = []
+        for day, amount in [(0, 50000), (2, 100000), (5, 300000), (8, 800000)]:
+            date = shift_date(DAY, days=day)
+            pix = send(**origin, **investment, amount=amount, transaction_date=date)
+            pix["transaction_date"] = date
+            responses.append(pix)
+            if pix["status"] == "two_factor_required":
+                confirm(pix)
+
+        for pix in responses[2:]:
+            assert pix["status"] == "two_factor_required", pix["metadata"]
+            assert pix["metadata"]["scam_warning"] is True
+
+    def test_stable_monthly_bill_stays_approved(self):
+        """Caso logo abaixo: o aluguel, mesmo valor todo mês para o mesmo destino, continua sem fricção."""
+        client = client_with_history()
+        origin = {"payer_document": client["payer_document"], "device_id": client["device_id"]}
+        landlord = new_payee()
+
+        for month in range(4):
+            pix = send(**origin, **landlord, amount=80000, transaction_date=shift_date(DAY, days=30 * month))
+            assert pix["status"] == "approved", (month, pix["metadata"])
+
+
 class TestConfirmedScamDoesNotTeachTheProfile:
     def test_third_fake_call_center_pix_still_asks_two_factor(self):
         """Item 1 — a vítima da falsa central confirma R$ 4.800 e R$ 4.500; o 3º Pix, de R$ 3.900, não pode passar.

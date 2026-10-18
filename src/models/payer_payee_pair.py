@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, Column, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from models.base import Base
 from models import Account
 
@@ -15,6 +15,9 @@ class PayerPayeePair(Base):
     last_seen_at = Column(DateTime(timezone=True), nullable=False)
     approved_count = Column(Integer, nullable=False)
     approved_amount = Column(BigInteger, nullable=False)
+    approved_days = Column(Integer, nullable=False)
+    last_approved_day = Column(Date)
+    max_approved_amount = Column(BigInteger, nullable=False)
     scam_step_up_count = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

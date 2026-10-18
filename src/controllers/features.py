@@ -49,7 +49,12 @@ class PixFeatures:
     # Regra 4 — perfil
     profile_amounts: Optional[List[int]]
     pair_approved_count: int
+    pair_approved_days: int
+    pair_max_approved_amount: int
     pair_scam_step_up_count: int
+    # Se o destino vale como "a conta do mês": calculado pelo FeatureBuilder
+    # (precisa do valor deste Pix e dos parâmetros da política).
+    destination_recurring: bool
 
     # Regra 5 — quem está operando
     device_distinct_payers: Optional[int]
@@ -85,16 +90,6 @@ class PixFeatures:
     # Saltos até o documento com marcação mais próximo que mandou dinheiro
     # (direta ou indiretamente) ao recebedor na janela; None se nenhum.
     payee_marked_sender_hop: Optional[int]
-
-    @property
-    def destination_recurring(self) -> bool:
-        """Destino que este pagador já pagou — e nunca sob aviso de golpe.
-
-        Quem confirmou um Pix para este destino depois de um 2FA com aviso de
-        golpe pode ser a vítima voltando a pagar o golpista: para ele, o
-        destino não vira "a conta do mês", por mais Pix que tenha.
-        """
-        return self.pair_approved_count > 0 and self.pair_scam_step_up_count == 0
 
     def to_dict(self) -> dict:
         return asdict(self)

@@ -206,6 +206,17 @@ pode ser nulo, `to_status_id`, `event_datetime`, `created_at`). Toda análise gr
 - Fator, piso e pontos em `rule_parameter` (`high_median_multiplier: 10`, `high_min_amount: 100000`,
   `high_app_points: 60`). Sem histórico suficiente (menos de 5 Pix) não há mediana, e vale só o limite de partida.
 
+## Destino recorrente (REVISADO após a bateria de realidade, item 2)
+
+- O atenuante "destino já pago" do `PERFIL.valor` (e o gatilho da camada 2) só vale com **2 ou mais Pix aprovados em
+  dias diferentes** (dia de Brasília) para aquele destino **e** valor atual de **no máximo 1,5x o maior valor já pago a
+  ele**. Acima disso é escalada, e o `PERFIL.valor` avalia normalmente. Quem já confirmou um Pix para o destino sob
+  aviso de golpe nunca o torna recorrente.
+- Parâmetros em `rule_parameter` (`PERFIL.valor`: `recurring_min_days: 2`, `recurring_max_growth_percent: 150`);
+  o par guarda `approved_days`, `last_approved_day` e `max_approved_amount`.
+- Por quê: com um único Pix aprovado já bastando, o falso investimento (R$ 500, 1.000, 3.000, 8.000 ao mesmo destino
+  em 8 dias) saía `approved` sem aviso do 2º Pix em diante.
+
 ## Velocidade
 
 - Reenvio com `id` novo, mesmo pagador, mesmo recebedor e mesmo valor dentro da janela conta como **uma** tentativa.

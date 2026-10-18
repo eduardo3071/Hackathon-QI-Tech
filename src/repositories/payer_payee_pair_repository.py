@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from database import Context
@@ -31,6 +31,8 @@ class PayerPayeePairRepository:
                 last_seen_at=seen_at,
                 approved_count=0,
                 approved_amount=0,
+                approved_days=0,
+                max_approved_amount=0,
                 scam_step_up_count=0,
             )
             self.session.add(pair)
@@ -40,9 +42,15 @@ class PayerPayeePairRepository:
 
         return pair
 
-    def add_approved(self, pair: PayerPayeePair, amount: int) -> None:
+    def add_approved(self, pair: PayerPayeePair, amount: int, approved_day: date) -> None:
+        """Soma um Pix aprovado ao par; `approved_day` é o dia de Brasília, para contar dias diferentes."""
         pair.approved_count = pair.approved_count + 1
         pair.approved_amount = pair.approved_amount + amount
+        pair.max_approved_amount = max(pair.max_approved_amount, amount)
+
+        if pair.last_approved_day != approved_day:
+            pair.approved_days = pair.approved_days + 1
+            pair.last_approved_day = approved_day
 
     def add_scam_step_up(self, pair: PayerPayeePair) -> None:
         pair.scam_step_up_count = pair.scam_step_up_count + 1

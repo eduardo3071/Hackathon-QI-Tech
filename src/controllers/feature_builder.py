@@ -50,10 +50,23 @@ class FeatureBuilder:
             max_night_approved_amount = profile.max_night_approved_amount
 
         pair_approved_count = 0
+        pair_approved_days = 0
+        pair_max_approved_amount = 0
         pair_scam_step_up_count = 0
         if pair is not None:
             pair_approved_count = pair.approved_count
+            pair_approved_days = pair.approved_days
+            pair_max_approved_amount = pair.max_approved_amount
             pair_scam_step_up_count = pair.scam_step_up_count
+
+        destination_recurring = self._destination_recurring(
+            pix["amount"],
+            pair_approved_count,
+            pair_approved_days,
+            pair_max_approved_amount,
+            pair_scam_step_up_count,
+            params.of("PERFIL.valor"),
+        )
 
         last_location = self._last_location(pix, profile)
         night = self._night(pix, local_date, params.of("LIMITE.noturno"))
@@ -87,7 +100,10 @@ class FeatureBuilder:
             fractioning_window_amounts=self._fractioning_window_amounts(pix, params.of("RITMO.fracionamento")),
             profile_amounts=self._profile_amounts(profile, transaction_date, params.of("PERFIL.valor")),
             pair_approved_count=pair_approved_count,
+            pair_approved_days=pair_approved_days,
+            pair_max_approved_amount=pair_max_approved_amount,
             pair_scam_step_up_count=pair_scam_step_up_count,
+            destination_recurring=destination_recurring,
             device_distinct_payers=self._device_distinct_payers(
                 pix, device, params.of("QUEM_OPERA.aparelho_compartilhado")
             ),
@@ -120,6 +136,38 @@ class FeatureBuilder:
             payee_marked_sender_hop=self._marked_sender_hop(
                 pix, params.of("RASTRO.proximidade_marcada"), params.of("MARCACAO.lista")
             ),
+        )
+
+    @staticmethod
+    def _destination_recurring(
+        amount: int,
+        approved_count: int,
+        approved_days: int,
+        max_approved_amount: int,
+        scam_step_up_count: int,
+        parameters,
+    ) -> bool:
+        """Se o destino vale como "a conta do mês": histórico real, e valor no passo do que sempre foi pago.
+
+        Um único Pix aprovado não basta: o falso investimento começa com um
+        Pix pequeno e vai subindo para o mesmo destino. Pede-se Pix aprovados
+        em dias diferentes e que o valor atual não passe de uma fração acima
+        do maior já pago. E quem confirmou um Pix para este destino sob aviso
+        de golpe pode ser a vítima voltando a pagar o golpista: para ele, o
+        destino nunca vira recorrente.
+
+        Com o `PERFIL.valor` desligado não há parâmetro de histórico, e vale
+        o critério simples (algum Pix aprovado, nenhum sob aviso).
+        """
+        if scam_step_up_count > 0:
+            return False
+
+        if parameters is None:
+            return approved_count > 0
+
+        return (
+            approved_days >= parameters["recurring_min_days"]
+            and amount * 100 <= max_approved_amount * parameters["recurring_max_growth_percent"]
         )
 
     def _markers(self, document_number: str, transaction_date: datetime) -> list:

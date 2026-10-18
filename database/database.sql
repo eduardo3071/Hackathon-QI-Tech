@@ -260,6 +260,15 @@ CREATE TABLE payer_payee_pair(
     last_seen_at                    TIMESTAMPTZ NOT NULL,
     approved_count                  INTEGER NOT NULL,
     approved_amount                 BIGINT NOT NULL,
+    -- Para o destino ser "recorrente" não basta um Pix aprovado: são
+    -- precisos Pix aprovados em DIAS diferentes (`approved_days`, com o
+    -- dia do último em `last_approved_day`, dia de Brasília) e o valor
+    -- atual não pode passar de uma fração acima do maior já pago a ele
+    -- (`max_approved_amount`). Sem isso, o falso investimento (R$ 500,
+    -- 1.000, 3.000, 8.000 ao mesmo destino) vira "a conta do mês" no 1º Pix.
+    approved_days                   INTEGER NOT NULL,
+    last_approved_day               DATE,
+    max_approved_amount             BIGINT NOT NULL,
     -- Quantas vezes o pagador confirmou um Pix para este destino depois de
     -- um 2FA com aviso de golpe. Esses Pix entram no perfil, mas não em
     -- `approved_count`: a vítima que confirma o golpe costuma pagar o mesmo
@@ -349,8 +358,10 @@ CROSS JOIN (VALUES
     -- entre pessoas, R$ 273, e a fraude média, R$ 1.735). Segundo degrau:
     -- 10x a mediana ou mais e acima de R$ 1.000, para destino novo e do
     -- aparelho confiável, pontua golpe no corte (60): 2FA com aviso.
+    -- Destino recorrente (atenuante): 2 ou mais Pix aprovados em dias
+    -- diferentes e valor atual de no máximo 150 por cento do maior já pago.
     ('PERFIL.valor',
-     '{"window_days": 90, "min_history": 5, "percentile": 95, "median_multiplier": 5, "fallback_amount": 100000, "app_points": 40, "ato_points": 60, "high_median_multiplier": 10, "high_min_amount": 100000, "high_app_points": 60}'),
+     '{"window_days": 90, "min_history": 5, "percentile": 95, "median_multiplier": 5, "fallback_amount": 100000, "app_points": 40, "ato_points": 60, "high_median_multiplier": 10, "high_min_amount": 100000, "high_app_points": 60, "recurring_min_days": 2, "recurring_max_growth_percent": 150}'),
 
     -- Estimativa: conta destino com menos de 30 dias (fator do art. 39-B da
     -- Res. BCB 147). Primeiro crédito fora do perfil pontua 60; só a

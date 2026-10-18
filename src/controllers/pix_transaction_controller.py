@@ -5,6 +5,9 @@ import time
 from copy import deepcopy
 from datetime import datetime
 from typing import Tuple
+from zoneinfo import ZoneInfo
+
+from constants import LOCAL_TIMEZONE
 
 from controllers.analysis_engine import AnalysisEngine, EngineResult
 from controllers.base_controller import BaseController
@@ -373,7 +376,8 @@ class PixTransactionController(BaseController):
             self.payer_payee_pair_repository.add_scam_step_up(pair)
         else:
             self.payer_profile_repository.add_approved(profile, pix["amount"], transaction_date)
-            self.payer_payee_pair_repository.add_approved(pair, pix["amount"])
+            local_day = transaction_date.astimezone(ZoneInfo(LOCAL_TIMEZONE)).date()
+            self.payer_payee_pair_repository.add_approved(pair, pix["amount"], local_day)
 
         # Com a confiança bloqueada (biometria reprovada há menos de 24 h),
         # o Pix aprovado não conta para tornar o aparelho confiável.

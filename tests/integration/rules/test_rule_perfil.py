@@ -65,16 +65,50 @@ class TestRulePerfilValor:
         assert response["metadata"]["recommended_action"] == "none"
         assert reason_for(response, "PERFIL.valor") is None
 
-    def test_recurrent_payee_attenuates_the_signal(self):
-        """O aluguel: valor alto, mesmo destino de sempre, aparelho de sempre → aprova sem aviso."""
-        context = self._payer_with_history()
+    def _payer_with_rent_history(self) -> dict:
+        """Oito Pix de R$ 20 (mediana R$ 20) e três de R$ 1.000 ao mesmo destino, em dias diferentes (P95 R$ 1.000)."""
+        context = {
+            "payer_document": RandomGenerator.generate_cpf(),
+            "device_id": f"dvc-{uuid4().hex[:12]}",
+            "payee_document": RandomGenerator.generate_cpf(),
+            "payee_account_number": RandomGenerator.generate_account_number(),
+        }
+        Scenario.build_history(
+            payer_document=context["payer_document"],
+            device_id=context["device_id"],
+            amounts=[2000] * 8,
+            first_date=HISTORY_START,
+        )
+        Scenario.build_history(
+            payer_document=context["payer_document"],
+            device_id=context["device_id"],
+            payee_document=context["payee_document"],
+            payee_account_number=context["payee_account_number"],
+            amounts=[100000] * 3,
+            first_date=shift_date(HISTORY_START, days=10),
+        )
+        return context
 
-        response = Scenario.send(**context, amount=250000, transaction_date=DAY)
+    def test_recurrent_payee_attenuates_the_signal(self):
+        """O aluguel: 3 Pix de R$ 1.000 ao mesmo destino; R$ 1.200 (até 1,5x o maior) passa sem aviso."""
+        context = self._payer_with_rent_history()
+
+        response = Scenario.send(**context, amount=120000, transaction_date=DAY)
 
         assert response["status"] == "approved"
         assert response["metadata"]["recommended_action"] == "none"
         assert reason_for(response, "PERFIL.valor") is None
         assert "PERFIL.valor" in response["metadata"]["passed"]
+
+    def test_recurrent_payee_does_not_excuse_a_jump_above_one_and_a_half_times_the_largest(self):
+        """Mesmo destino de sempre, mas R$ 2.500 (2,5x o maior já pago a ele): o atenuante não vale."""
+        context = self._payer_with_rent_history()
+
+        response = Scenario.send(**context, amount=250000, transaction_date=DAY)
+
+        assert response["status"] == "two_factor_required"
+        assert response["metadata"]["scam_warning"] is True
+        assert reason_for(response, "PERFIL.valor")["typology"] == "app"
 
     def test_out_of_profile_from_a_new_device_points_to_takeover(self):
         context = self._payer_with_history()

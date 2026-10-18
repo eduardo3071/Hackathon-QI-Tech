@@ -110,6 +110,8 @@ class TestDecisionLayers:
             "payee_account_number": RandomGenerator.generate_account_number(),
         }
         Scenario.register_device(context["payer_document"], context["device_id"], shift_date(DAY, days=-2))
+        # O destino só é "já pago" com Pix aprovados em 2 dias diferentes.
+        Scenario.send(**context, amount=10000, transaction_date=shift_date(DAY, days=-2, hours=1))
         Scenario.send(**context, amount=10000, transaction_date=shift_date(DAY, days=-1))
 
         response = Scenario.send(**context, amount=10000, transaction_date=DAY)
