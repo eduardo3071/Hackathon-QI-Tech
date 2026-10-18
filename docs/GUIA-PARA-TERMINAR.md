@@ -295,7 +295,7 @@ Trabalhe num branch novo, `claude/realidade`, a partir do `main` atualizado (que
 8. **Loja PJ antiga não é golpe.** Uma TV de R$ 3.500 na Black Friday, numa loja com CNPJ de 12 anos, pediu 2FA com aviso de golpe. Correção: para recebedor PJ com conta de 1 ano ou mais, o `PERFIL.valor` no máximo aprova com aviso e nunca pede 2FA sozinho.
    Teste: o caso da TV → `approved` com `warn`.
 
-9. **Res. BCB 402 vale para todos (decisão do grupo).** Remova o "período de aprendizado" e o alívio do "cliente que o motor ainda não conhece". Aparelho não confiável fica com R$ 200 por Pix e R$ 1.000 por dia para todo pagador, inclusive o que o motor nunca viu, como a Res. BCB 402/2024 manda para aparelho não cadastrado. O "Cadastro de dispositivos Pix" é produto da própria QI Tech.
+9. **Res. BCB 403 vale para todos (decisão do grupo).** Remova o "período de aprendizado" e o alívio do "cliente que o motor ainda não conhece". Aparelho não confiável fica com R$ 200 por Pix e R$ 1.000 por dia para todo pagador, inclusive o que o motor nunca viu, como a Res. BCB 403/2024 manda para aparelho não cadastrado. O "Cadastro de dispositivos Pix" é produto da própria QI Tech.
    - Quando o único motivo do 2FA é um cliente que o motor ainda não conhece com aparelho novo, sem nenhum outro sinal de risco, use `step_up_reason: "device_registration"` com `step_up_method: "face_liveness"`. É o cadastro do aparelho que a norma prevê, feito uma vez só: depois do retorno `passed`, o aparelho fica confiável. Não use `in_app_confirmation` aqui, porque a confirmação no próprio aparelho novo não prova nada (mesmo raciocínio do item 5).
    - O limite de partida do `PERFIL.valor` para quem não tem histórico continua igual.
    - Atualize no CLAUDE.md a seção "Cliente que o motor ainda não conhece" e os testes de cenário que mudarem, explicando cada um no commit.
@@ -394,7 +394,7 @@ Trabalhe num branch novo, `claude/fase-5`, a partir do `main` atualizado. É a c
    - **Regras.** A tabela `| Regra | Lógica | Parâmetros | Por quê |` com as 8 regras compostas. Dentro de cada linha, os sinais da regra como subitens, cada um com o valor do parâmetro, a marca "norma" (com a resolução) ou "estimativa" (com o raciocínio) e a fonte.
      - Use só fontes que estão em `docs/pesquisa-fraude-pix.md` e copie o link de lá; não invente link nem número.
      - Todo valor da tabela precisa ser igual ao do seed em `database/database.sql`. Confira um por um e me liste qualquer diferença.
-   - **Como as regras viram decisão.** As 4 formas de recusar, a tabela de motivo e método do 2FA (`step_up_reason`, `step_up_method`, `scam_warning`), a faixa de aviso, a precedência, a confiança do aparelho, o cadastro do aparelho (Res. BCB 402) e o retorno do 2FA.
+   - **Como as regras viram decisão.** As 4 formas de recusar, a tabela de motivo e método do 2FA (`step_up_reason`, `step_up_method`, `scam_warning`), a faixa de aviso, a precedência, a confiança do aparelho, o cadastro do aparelho (Res. BCB 403) e o retorno do 2FA.
    - **Exemplo resolvido.** Rode o payload do slide da QI Tech contra a API e cole a resposta real. Explique sinal por sinal, com os pontos e o placar, por que a decisão foi aquela.
    - **O que o motor enxerga.** Ele só vê Pix de clientes da QI Tech; diga quais sinais dependem disso.
    - **Limitações conhecidas,** tiradas da bateria de realidade: coação, Pix de centavos sem ML, ladrão que espera 24 h, e o que mais a bateria mostrou. Para cada uma, o próximo passo.

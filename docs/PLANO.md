@@ -291,7 +291,7 @@ São 8 regras compostas. Cada uma responde uma pergunta e combina sinais: ao tod
 | Sinal | Antes | Lógica | Parâmetro inicial | Saída | Camada | Fase |
 | --- | --- | --- | --- | --- | --- | --- |
 | `MARCACAO.lista` | R12 | Pagador ou recebedor na tabela local que simula o DICT | — (norma, Res. BCB 587/2026) | Recusa | 0 | 2 |
-| `LIMITE.aparelho_nao_cadastrado` | R2 | Aparelho não confiável: menos de 2 Pix aprovados com 24h de intervalo e sem biometria aprovada; cliente desconhecido com conta de 180 dias ou mais usa o limite de partida | R$ 200 por Pix, R$ 1.000 por dia (norma, Res. BCB 402/2024) | 2FA | 0 | 2 |
+| `LIMITE.aparelho_nao_cadastrado` | R2 | Aparelho não confiável: menos de 2 Pix aprovados com 24h de intervalo e sem biometria aprovada; cliente desconhecido com conta de 180 dias ou mais usa o limite de partida | R$ 200 por Pix, R$ 1.000 por dia (norma, Res. BCB 403/2024) | 2FA | 0 | 2 |
 | `LIMITE.noturno` | R5 | Soma PF→PF entre 20h e 6h (Brasília) acima do padrão do BCB e acima do maior Pix noturno aprovado do pagador | R$ 1.000 (padrão da Res. BCB 142/2021); o motor não recebe o limite configurado do cliente, então é sinal, não teto | 2FA; com sinal de golpe ou laranja, recusa | 0 | 2 |
 | `LIMITE.sem_geolocalizacao` | R15 | Sem `geolocation` e valor acima de um limite reduzido | faculdade da IN BCB 669; valor estimado | 2FA | 1 | 3 |
 | `RITMO.velocidade` | R4 | Tentativas do pagador em janela deslizante, incluindo recusadas, combinando contagem e soma | 5 em 10 min → 2FA; 10 → recusa (estimativa) | 2FA ou recusa | 0 | 2 |
