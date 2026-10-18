@@ -1,7 +1,7 @@
 import re
 from uuid import uuid4
 
-from tests.utils import PayloadGenerator, RandomGenerator, RequestGenerator, Scenario, shift_date
+from tests.utils import PayloadGenerator, RandomGenerator, RequestGenerator, Scenario, reason_for, shift_date
 
 # Os cenários de ponta a ponta do CLAUDE.md, cada um com o status que a
 # API tem de devolver. Foram o critério de pronto das revisões de 17/10.
@@ -131,11 +131,12 @@ class TestEndToEndScenarios:
         assert second == first
 
     def test_resend_with_new_id_counts_once(self):
-        """O mesmo Pix refeito 3 vezes com `id` novo em 5 min é UMA tentativa.
+        """O mesmo Pix refeito 3 vezes com `id` novo em 5 min, sem ser aprovado, é UMA tentativa.
 
-        Antes dele, 2 Pix para outros destinos. Se cada reenvio contasse, o
-        último seria a 5ª tentativa da janela, somando R$ 1.500, e pediria
-        2FA. Contando uma vez, são 3 tentativas.
+        Antes dele, 2 Pix para outros destinos. O Pix refeito é o primeiro
+        Pix alto para uma conta nova e pede 2FA, que o cliente não conclui.
+        Se cada reenvio contasse, o último seria a 5ª tentativa da janela e
+        a velocidade pediria 2FA. Contando uma vez, são 3 tentativas.
         """
         client = client_with_history()
 
@@ -145,10 +146,12 @@ class TestEndToEndScenarios:
         payee = {
             "payee_document": RandomGenerator.generate_cpf(),
             "payee_account_number": RandomGenerator.generate_account_number(),
+            "payee_opening_date": shift_date(DAY, days=-10),
         }
         responses = [
-            Scenario.send(**client, **payee, amount=30000, transaction_date=shift_date(DAY, minutes=2 + 2 * index))
+            Scenario.send(**client, **payee, amount=150000, transaction_date=shift_date(DAY, minutes=2 + 2 * index))
             for index in range(3)
         ]
 
-        assert [response["status"] for response in responses] == ["approved"] * 3
+        assert [response["status"] for response in responses] == ["two_factor_required"] * 3
+        assert all(reason_for(response, "RITMO.velocidade") is None for response in responses)

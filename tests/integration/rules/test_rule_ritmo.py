@@ -87,10 +87,34 @@ class TestRuleRitmoVelocidade:
         assert reason_for(response, "RITMO.velocidade") is None
 
     def test_same_pix_redone_with_new_id_counts_once(self):
-        """Mesmo pagador, mesmo recebedor, mesmo valor, `id` novo: é o cliente refazendo o Pix.
+        """Mesmo pagador, mesmo recebedor, mesmo valor, `id` novo, sem aprovação: é o cliente refazendo o Pix.
 
         Quem tomou um 2FA e refez o Pix não pode ser empurrado para a recusa
-        por isso. Cinco envios iguais em cinco minutos são UMA tentativa.
+        por isso. Cinco envios iguais em cinco minutos, nenhum aprovado (o
+        primeiro Pix alto para conta nova pede 2FA), são UMA tentativa.
+        """
+        context = self._payer_with_known_device()
+        payee = {
+            "payee_document": RandomGenerator.generate_cpf(),
+            "payee_account_number": RandomGenerator.generate_account_number(),
+            "payee_opening_date": shift_date(DAY, days=-10),
+        }
+
+        responses = [
+            Scenario.send(**context, **payee, amount=150000, transaction_date=shift_date(DAY, minutes=minute))
+            for minute in range(5)
+        ]
+
+        assert [response["status"] for response in responses] == ["two_factor_required"] * 5
+        assert all(reason_for(response, "RITMO.velocidade") is None for response in responses)
+
+    def test_approved_identical_pix_each_count_as_an_attempt(self):
+        """Pix APROVADOS iguais não se juntam: dez Pix de R$ 990 ao mesmo destino em 5 min são dez tentativas.
+
+        A junção é só para o reenvio de uma tentativa que não saiu. Sem
+        isso, R$ 9.900 saíam aprovados, um Pix idêntico atrás do outro.
+        Contando cada aprovado, o fracionamento (mesma contagem da
+        velocidade) já pede 2FA no 3º; dali em diante nenhum sai.
         """
         context = self._payer_with_known_device()
         payee = {
@@ -99,11 +123,13 @@ class TestRuleRitmoVelocidade:
         }
 
         responses = [
-            Scenario.send(**context, **payee, amount=30000, transaction_date=shift_date(DAY, minutes=minute))
-            for minute in range(5)
+            Scenario.send(**context, **payee, amount=99000, transaction_date=shift_date(DAY, seconds=30 * index))
+            for index in range(10)
         ]
 
-        assert [response["status"] for response in responses] == ["approved"] * 5
+        assert [response["status"] for response in responses[:2]] == ["approved"] * 2
+        assert [response["status"] for response in responses[2:]] == ["two_factor_required"] * 8
+        assert reason_for(responses[2], "RITMO.fracionamento")["outcome"] == "two_factor"
 
     def test_same_payee_with_another_amount_is_another_attempt(self):
         """O limite logo ao lado: outro valor para o mesmo recebedor é outra tentativa."""

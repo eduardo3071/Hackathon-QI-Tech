@@ -272,22 +272,34 @@ class FeatureBuilder:
     def _velocity(self, pix: dict, parameters) -> dict:
         """Tentativas anteriores do pagador na janela, e quanto elas somam.
 
-        O mesmo Pix refeito com `id` novo — mesmo recebedor, mesmo valor —
-        conta como UMA tentativa: é o cliente que tomou um 2FA e refez o
-        Pix, e contar de novo o empurraria para a recusa. Por isso a
-        contagem é de pares (recebedor, valor) distintos, e o par deste Pix
-        sai da conta (a regra soma o Pix atual à vista, "anteriores + 1").
+        O reenvio de uma tentativa que NÃO foi aprovada (2FA sem retorno,
+        recusada ou reprovada no 2FA) com `id` novo — mesmo recebedor,
+        mesmo valor — conta como UMA tentativa: é o cliente refazendo o
+        Pix, e contar de novo o empurraria para a recusa. Pix aprovado
+        conta sempre como tentativa própria, e soma no valor da janela.
         """
         if parameters is None:
             return {"attempts": None, "amount": None}
 
         window_start = pix["transaction_date"] - timedelta(minutes=parameters["window_minutes"])
-        groups = set(
-            self.pix_feature_repository.attempt_groups(pix["payer_document"], window_start, pix["transaction_date"])
-        )
-        groups.discard((pix["payee_document"], pix["amount"]))
+        amounts = self._window_attempt_amounts(pix, window_start)
 
-        return {"attempts": len(groups), "amount": sum(amount for _payee, amount in groups)}
+        return {"attempts": len(amounts), "amount": sum(amounts)}
+
+    def _window_attempt_amounts(self, pix: dict, window_start: datetime) -> list:
+        """O valor de cada tentativa anterior do pagador na janela, com os reenvios não aprovados juntados.
+
+        Cada Pix aprovado é uma tentativa. Os não aprovados se juntam por
+        (recebedor, valor), e o grupo some quando já há um aprovado igual
+        (o reenvio que saiu) ou quando é igual a este Pix (este é o reenvio).
+        """
+        attempts = self.pix_feature_repository.attempts(pix["payer_document"], window_start, pix["transaction_date"])
+
+        approved = [(payee, amount) for payee, amount, status in attempts if status == AnalysisStatus.APPROVED]
+        retried = {(payee, amount) for payee, amount, status in attempts if status != AnalysisStatus.APPROVED}
+        retried = retried - set(approved) - {(pix["payee_document"], pix["amount"])}
+
+        return [amount for _payee, amount in approved] + [amount for _payee, amount in retried]
 
     def _new_payee_burst(self, pix: dict, destination_account: Account, pair, parameters) -> dict:
         """Para quantos destinos NOVOS o pagador mandou na janela, e quanto, contando este Pix.
@@ -443,19 +455,16 @@ class FeatureBuilder:
     def _fractioning_window_amounts(self, pix: dict, parameters):
         """Os valores das tentativas anteriores do pagador na janela, como a velocidade os conta.
 
-        O mesmo Pix refeito com `id` novo (mesmo recebedor, mesmo valor)
-        entra uma vez só, como na velocidade: refazer o Pix não é picar.
+        O reenvio de uma tentativa não aprovada (mesmo recebedor, mesmo
+        valor) entra uma vez só, como na velocidade: refazer o Pix não é
+        picar. Pix aprovado conta sempre.
         """
         if parameters is None:
             return None
 
         window_start = pix["transaction_date"] - timedelta(minutes=parameters["window_minutes"])
-        groups = set(
-            self.pix_feature_repository.attempt_groups(pix["payer_document"], window_start, pix["transaction_date"])
-        )
-        groups.discard((pix["payee_document"], pix["amount"]))
 
-        return sorted(amount for _payee, amount in groups)
+        return sorted(self._window_attempt_amounts(pix, window_start))
 
     def _payee_days_without_movement(self, pix: dict, destination_account: Account):
         """Há quantos dias a conta destino não recebia nada aprovado na nossa base (None: nunca recebeu)."""

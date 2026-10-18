@@ -26,24 +26,24 @@ class PixFeatureRepository:
             self.session.query(PixTransaction.id).filter(PixTransaction.payer_document_number == payer_document).exists()
         ).scalar()
 
-    def attempt_groups(self, payer_document: str, start: datetime, end: datetime) -> List[Tuple[str, int]]:
-        """As tentativas do pagador na janela, com qualquer status, agrupadas por (recebedor, valor).
+    def attempts(self, payer_document: str, start: datetime, end: datetime) -> List[Tuple[str, int, str]]:
+        """As tentativas do pagador na janela, com qualquer status: (recebedor, valor, status atual), uma por Pix.
 
-        Cada par distinto volta uma vez só. Quem decide que o mesmo Pix
-        refeito com `id` novo é UMA tentativa é o controller; aqui só se
-        agrupa.
+        Quem decide que o reenvio de uma tentativa não aprovada é a mesma
+        tentativa é o controller; aqui só se lista.
         """
         rows = (
-            self.session.query(PixTransaction.payee_document_number, PixTransaction.amount)
+            self.session.query(PixTransaction.payee_document_number, PixTransaction.amount, AnalysisStatus.enumerator)
+            .join(Analysis, Analysis.pix_transaction_id == PixTransaction.id)
+            .join(AnalysisStatus, AnalysisStatus.id == Analysis.status_id)
             .filter(
                 PixTransaction.payer_document_number == payer_document,
                 PixTransaction.transaction_date >= start,
                 PixTransaction.transaction_date <= end,
             )
-            .distinct()
             .all()
         )
-        return [(row.payee_document_number, row.amount) for row in rows]
+        return [(row.payee_document_number, row.amount, row.enumerator) for row in rows]
 
     def new_payee_attempt_groups(self, payer_document: str, start: datetime, end: datetime) -> List[Tuple[int, int]]:
         """As tentativas do pagador na janela para destinos que ele viu pela PRIMEIRA vez dentro dela.

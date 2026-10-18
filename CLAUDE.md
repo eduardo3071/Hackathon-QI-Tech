@@ -48,7 +48,8 @@ Entrega: link do repositório no Slack (grupo da final) até **domingo 18/10, 12
   | Carro usado: cliente com histórico paga R$ 35.000 de dia a conta aberta há 20 dias (primeiro crédito) | `two_factor_required` com aviso de golpe (não `rejected`) |
   | Conta laranja: conta PF aberta há 10 dias recebe Pix de R$ 300 de 5 pagadores distintos em 1 h | o 4º (R$ 1.200 de 4 pagadores) é `rejected` (conta nova + fan-in; antes, o 5º) |
   | Reenvio do mesmo `id` com o CPF mascarado (`123.456.789-09` em vez de `12345678909`) | 200 com a análise gravada (não 409) |
-  | Mesmo pagador reenvia o mesmo valor para o mesmo destino com `id` novo, 3 vezes em 5 min | conta como 1 tentativa na velocidade |
+  | Mesmo pagador reenvia o mesmo valor para o mesmo destino com `id` novo, 3 vezes em 5 min, sem aprovação | conta como 1 tentativa na velocidade |
+  | 10 Pix aprovados de R$ 990 ao mesmo destino em 5 min | cada um conta; a partir do 3º, `two_factor_required` (`RITMO.fracionamento`) |
   | Celular novo pede 2FA (`face_liveness`), retorno `passed`, e 10 min depois manda R$ 800 do mesmo aparelho | o segundo não pede 2FA por aparelho |
   | Pix com 2FA por `possible_scam`, retorno `passed`, e no dia seguinte outro Pix fora do perfil para o mesmo destino | destino NÃO é tratado como recorrente, e o Pix é `two_factor_required` com `possible_scam` e `scam_warning: true` (`CONTA_RECEBEDORA.suspeita_anterior`) |
   | Mesmo caso, mas o Pix do dia seguinte com valor dentro do perfil | `approved` (o sinal passa) |
@@ -322,7 +323,10 @@ ou mais; o parâmetro `new_client_min_account_age_days` saiu do seed).
 
 ## Velocidade
 
-- Reenvio com `id` novo, mesmo pagador, mesmo recebedor e mesmo valor dentro da janela conta como **uma** tentativa.
+- Reenvio com `id` novo, mesmo pagador, mesmo recebedor e mesmo valor dentro da janela conta como **uma** tentativa
+  **só quando as anteriores não foram aprovadas** (2FA sem retorno, recusada ou reprovada no 2FA). Pix aprovado conta
+  sempre como tentativa própria e soma no valor da janela (vale também para o `RITMO.fracionamento`). Sem isso, dez Pix
+  aprovados de R$ 990 ao mesmo destino em 5 min saíam todos (decisão de 18/10, auditoria).
   Sem isso, o cliente que refaz o Pix depois do 2FA é empurrado para a recusa.
 
 ## Higiene do histórico
