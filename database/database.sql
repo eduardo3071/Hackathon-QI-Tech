@@ -471,6 +471,12 @@ CROSS JOIN (VALUES
     ('ANOMALIA.ml',
      '{"score_threshold": 0.61, "score_span": 0.04, "max_points": 60}'),
 
+    -- Estimativa: primeiro Pix (nenhum aprovado sem aviso de golpe) de
+    -- R$ 1.000 ou mais para PF com conta de menos de 30 dias — o falso
+    -- parente. Pontua golpe no corte (60): 2FA com aviso; nunca recusa.
+    ('CONTA_RECEBEDORA.primeiro_pix_alto',
+     '{"max_account_age_days": 30, "min_amount": 100000, "points": 60}'),
+
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
     -- diferentes: um sinal sozinho não é "risco claro". Todo 2FA vira

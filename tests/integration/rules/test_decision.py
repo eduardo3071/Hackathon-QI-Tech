@@ -41,6 +41,7 @@ class TestDecisionSlideExample:
             "LIMITE.noturno",
             "PERFIL.valor",
             "CONTA_RECEBEDORA.conta_nova",
+            "CONTA_RECEBEDORA.primeiro_pix_alto",
         }
         for reason in metadata["reasons"]:
             assert reason["message"], f"{reason['signal']} sem mensagem"
@@ -160,6 +161,7 @@ class TestDecisionLayers:
             "CONTA_RECEBEDORA.varias_instituicoes",
             "QUEM_OPERA.fora_da_zona",
             "ANOMALIA.ml",
+            "CONTA_RECEBEDORA.primeiro_pix_alto",
         }
 
     def test_rejected_pix_is_recorded_and_consultable(self):

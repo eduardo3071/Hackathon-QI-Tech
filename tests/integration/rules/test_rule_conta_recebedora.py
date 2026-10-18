@@ -32,7 +32,10 @@ class TestRuleContaRecebedoraContaNova:
         )
 
         assert response["status"] == "two_factor_required"
-        assert response["metadata"]["typology"] == "mule_account"
+        # O primeiro Pix alto para conta PF nova também é o falso parente
+        # (CONTA_RECEBEDORA.primeiro_pix_alto): o placar de golpe chega ao
+        # corte, e a tipologia é golpe; status, motivo e método não mudam.
+        assert response["metadata"]["typology"] == "app_scam"
         assert response["metadata"]["step_up_reason"] == "possible_scam"
         assert response["metadata"]["step_up_method"] == "in_app_confirmation"
         assert response["metadata"]["scam_warning"] is True

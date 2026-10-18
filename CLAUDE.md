@@ -286,6 +286,17 @@ ou mais; o parâmetro `new_client_min_account_age_days` saiu do seed).
 - Por quê: na bateria (F6), o Pix que o ladrão aprovou na rua virava "local habitual" na hora, e o 2º Pix caía na
   confirmação no app, que o ladrão com o celular desbloqueado confirma.
 
+## Falso parente — `CONTA_RECEBEDORA.primeiro_pix_alto` (Regra 6, camada 1; decisão de 18/10)
+
+- Recebedor PF com conta de menos de 30 dias, primeiro Pix deste pagador para essa conta e valor de R$ 1.000 ou mais
+  → `app` +60 → `two_factor_required` com `possible_scam` e `scam_warning: true`. Não depende do histórico do pagador.
+- "Primeiro Pix" = nenhum Pix aprovado **sem aviso de golpe** para essa conta (`pair_approved_count == 0`): o golpe
+  confirmado não cria relação com o destino, então o 2º Pix ao mesmo golpista, no mesmo dia, também pede 2FA. (A
+  `suspeita_anterior` não pega esse 2º Pix quando o pagador já manda valores altos a destinos novos, porque ela exige
+  valor fora do perfil.)
+- Mesma titularidade e recebedor PJ → `not_needed`. É sinal de golpe, não de laranja: sozinho nunca recusa.
+- Parâmetros em `rule_parameter` (`max_account_age_days: 30`, `min_amount: 100000`, `points: 60`), estimativas.
+
 ## Velocidade
 
 - Reenvio com `id` novo, mesmo pagador, mesmo recebedor e mesmo valor dentro da janela conta como **uma** tentativa.

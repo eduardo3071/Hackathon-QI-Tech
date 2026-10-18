@@ -12,6 +12,7 @@ FAN_IN = "CONTA_RECEBEDORA.fan_in"
 PRIOR_SUSPICION = "CONTA_RECEBEDORA.suspeita_anterior"
 DORMANT = "CONTA_RECEBEDORA.dormente"
 SEVERAL_INSTITUTIONS = "CONTA_RECEBEDORA.varias_instituicoes"
+FIRST_HIGH_PIX = "CONTA_RECEBEDORA.primeiro_pix_alto"
 
 
 class ContaRecebedoraRule(BaseRule):
@@ -31,6 +32,7 @@ class ContaRecebedoraRule(BaseRule):
             NEW_ACCOUNT: (1, self._evaluate_new_account),
             FAN_IN: (1, self._evaluate_fan_in),
             PRIOR_SUSPICION: (1, self._evaluate_prior_suspicion),
+            FIRST_HIGH_PIX: (1, self._evaluate_first_high_pix),
             DORMANT: (2, self._evaluate_dormant),
             SEVERAL_INSTITUTIONS: (2, self._evaluate_several_institutions),
         }
@@ -280,6 +282,52 @@ class ContaRecebedoraRule(BaseRule):
             2,
             PASS,
             f"Contas novas do recebedor em {institutions} instituição(ões) na nossa base.",
+            observed=observed,
+            threshold=threshold,
+        )
+
+    def _evaluate_first_high_pix(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> SignalResult:
+        """Primeiro Pix alto para uma pessoa física de conta recém-aberta: o falso parente.
+
+        "Mãe, troquei de número, me manda R$ 1.890": a conta é nova, o
+        pagador nunca pagou essa pessoa, e o valor é alto. Não depende do
+        histórico do pagador — quem já manda valores altos a destinos novos
+        passava pelo PERFIL.valor. "Primeiro" quer dizer nenhum Pix aprovado
+        sem aviso de golpe para essa conta: o golpe confirmado não cria
+        relação com o destino, e o 2º Pix ao mesmo golpista também pede 2FA.
+        Pontua golpe (`app`) no corte, não laranja: sozinho nunca recusa.
+        """
+        if features.same_ownership:
+            return self.not_needed(FIRST_HIGH_PIX, 1, "Mesma titularidade: a conta nova é do próprio pagador.")
+
+        if features.payee_type != Account.PERSON:
+            return self.not_needed(FIRST_HIGH_PIX, 1, "Recebedor PJ: o golpe do falso parente é para pessoa física.")
+
+        max_age_days = parameters["max_account_age_days"]
+        min_amount = parameters["min_amount"]
+        first_pix = features.pair_approved_count == 0
+
+        observed = {"account_age_days": features.payee_account_age_days, "first_pix": first_pix, "amount": features.amount}
+        threshold = {"max_account_age_days": max_age_days, "min_amount": min_amount}
+
+        if features.payee_account_age_days < max_age_days and first_pix and features.amount >= min_amount:
+            return self.result(
+                FIRST_HIGH_PIX,
+                1,
+                WARN,
+                f"Primeiro Pix deste pagador, de {format_brl(features.amount)}, para uma pessoa física com conta aberta "
+                f"há {features.payee_account_age_days} dias: padrão do golpe do falso parente.",
+                typology=APP,
+                points=parameters["points"],
+                observed=observed,
+                threshold=threshold,
+            )
+
+        return self.result(
+            FIRST_HIGH_PIX,
+            1,
+            PASS,
+            "Conta recebedora antiga, destino já pago antes, ou valor abaixo do piso.",
             observed=observed,
             threshold=threshold,
         )
