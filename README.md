@@ -1,9 +1,10 @@
 # Grupo 47 — Motor Antifraude Pix
 
-**Integrantes:** [o grupo preenche]
+**Integrantes:** Eduardo Oliveira Rodrigues Cardoso · Ingrid Carvalho Godoy
 
 API que recebe um Pix e responde, antes de o dinheiro sair, uma de três decisões — `approved`, `two_factor_required` ou `rejected` — sempre com o motivo explicável em `metadata`. Feita a partir do Base Service do Bootcamp QI Tech, com as mesmas camadas e o mesmo padrão de erros.
 
+- RFC (versão 2): [`docs/RFC.md`](docs/RFC.md)
 - Pesquisa com a fonte de cada parâmetro: [`docs/pesquisa-fraude-pix.md`](docs/pesquisa-fraude-pix.md)
 - Plano do projeto (histórico; onde divergir, vale este README e o `CLAUDE.md`): [`docs/PLANO.md`](docs/PLANO.md)
 - Medidas: [`docs/resultados-simulador.md`](docs/resultados-simulador.md) e [`docs/bateria-realidade.md`](docs/bateria-realidade.md)
