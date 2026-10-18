@@ -142,6 +142,7 @@ class TestDecisionLayers:
             "LIMITE.aparelho_nao_cadastrado",
             "LIMITE.noturno",
             "RITMO.velocidade",
+            "RITMO.destinos_novos",
             "PERFIL.valor",
             "CONTA_RECEBEDORA.conta_nova",
             "CONTA_RECEBEDORA.fan_in",

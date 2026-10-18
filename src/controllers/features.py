@@ -47,6 +47,10 @@ class PixFeatures:
     # Valores das tentativas anteriores na janela do fracionamento, um por
     # par (recebedor, valor), sem o deste Pix.
     fractioning_window_amounts: Optional[List[int]]
+    # Destinos que o pagador viu pela 1ª vez dentro da janela, contando o
+    # deste Pix se ele também é novo: quantos, e quanto somam os Pix a eles.
+    new_payee_burst_count: Optional[int]
+    new_payee_burst_amount: Optional[int]
 
     # Regra 4 — perfil
     profile_amounts: Optional[List[int]]

@@ -74,6 +74,7 @@ class FeatureBuilder:
         last_location = self._last_location(pix, profile)
         night = self._night(pix, local_date, params.of("LIMITE.noturno"))
         velocity = self._velocity(pix, params.of("RITMO.velocidade"))
+        new_payee_burst = self._new_payee_burst(pix, destination_account, pair, params.of("RITMO.destinos_novos"))
 
         return PixFeatures(
             amount=pix["amount"],
@@ -104,6 +105,8 @@ class FeatureBuilder:
             velocity_attempts=velocity["attempts"],
             velocity_amount=velocity["amount"],
             fractioning_window_amounts=self._fractioning_window_amounts(pix, params.of("RITMO.fracionamento")),
+            new_payee_burst_count=new_payee_burst["count"],
+            new_payee_burst_amount=new_payee_burst["amount"],
             profile_amounts=self._profile_amounts(profile, transaction_date, params.of("PERFIL.valor")),
             profile_new_payee_amounts=self._profile_amounts(
                 profile, transaction_date, params.of("PERFIL.valor"), new_payees_only=True
@@ -277,6 +280,35 @@ class FeatureBuilder:
         groups.discard((pix["payee_document"], pix["amount"]))
 
         return {"attempts": len(groups), "amount": sum(amount for _payee, amount in groups)}
+
+    def _new_payee_burst(self, pix: dict, destination_account: Account, pair, parameters) -> dict:
+        """Para quantos destinos NOVOS o pagador mandou na janela, e quanto, contando este Pix.
+
+        Destino novo é o que o pagador viu pela primeira vez dentro da
+        janela. O mesmo Pix refeito com `id` novo (mesmo destino, mesmo
+        valor) conta uma vez só, como na velocidade, e vários Pix ao mesmo
+        destino são um destino só.
+        """
+        if parameters is None:
+            return {"count": None, "amount": None}
+
+        window_start = pix["transaction_date"] - timedelta(minutes=parameters["window_minutes"])
+        groups = set(
+            self.pix_feature_repository.new_payee_attempt_groups(
+                pix["payer_document"], window_start, pix["transaction_date"]
+            )
+        )
+        groups.discard((destination_account.id, pix["amount"]))
+
+        destinations = {destination_id for destination_id, _amount in groups}
+        amount = sum(group_amount for _destination_id, group_amount in groups)
+
+        this_destination_is_new = pair is None or pair.first_seen_at >= window_start
+        if this_destination_is_new:
+            destinations.add(destination_account.id)
+            amount = amount + pix["amount"]
+
+        return {"count": len(destinations), "amount": amount}
 
     def _profile_amounts(self, profile, transaction_date: datetime, parameters, new_payees_only: bool = False):
         """Os valores aprovados do pagador dentro da janela do perfil (90 dias).

@@ -106,6 +106,59 @@ class TestRecurringDestinationNeedsRealHistory:
             assert pix["status"] == "approved", (month, pix["metadata"])
 
 
+class TestBurstToNewDestinations:
+    def _client(self) -> dict:
+        """Cliente de R$ 500 por dia: R$ 800 não está fora do perfil (até 5x a mediana)."""
+        client = client_with_history(amounts=[50000] * 5)
+
+        return {"payer_document": client["payer_document"], "device_id": client["device_id"]}
+
+    def test_ghost_hand_locks_at_the_third_pix(self):
+        """Item 6 — a mão fantasma: acesso remoto, do aparelho de sempre, Pix de R$ 800 a destinos novos, um por minuto.
+
+        Antes, 4 Pix e R$ 5.200 saíam antes de o motor pedir 2FA. Agora, 3 ou
+        mais Pix para destinos novos distintos em 10 minutos, somando
+        R$ 2.000 ou mais, pedem biometria (motivo: invasão de conta).
+        """
+        origin = self._client()
+
+        responses = [
+            send(**origin, amount=80000, transaction_date=shift_date(DAY, minutes=minute)) for minute in range(4)
+        ]
+
+        assert [response["status"] for response in responses[:2]] == ["approved", "approved"]
+        third = responses[2]
+        assert third["status"] == "two_factor_required", third["metadata"]
+        assert third["metadata"]["step_up_reason"] == "account_takeover"
+        assert third["metadata"]["step_up_method"] == "face_liveness"
+        reason = reason_for(third, "RITMO.destinos_novos")
+        assert reason["outcome"] == "two_factor"
+        assert reason["observed"]["new_payees"] == 3
+
+    def test_three_new_destinations_below_the_amount_do_not_lock(self):
+        """Caso logo abaixo: 3 destinos novos somando R$ 1.500 (abaixo de R$ 2.000) passam."""
+        origin = self._client()
+
+        responses = [
+            send(**origin, amount=50000, transaction_date=shift_date(DAY, minutes=minute)) for minute in range(3)
+        ]
+
+        assert [response["status"] for response in responses] == ["approved"] * 3
+
+    def test_repeated_pix_to_the_same_new_destination_counts_once(self):
+        """Três Pix a UM destino novo são um destino só: não é a rajada de destinos novos."""
+        origin = self._client()
+        payee = new_payee()
+
+        responses = [
+            send(**origin, **payee, amount=80000 + minute, transaction_date=shift_date(DAY, minutes=minute))
+            for minute in range(3)
+        ]
+
+        for response in responses:
+            assert reason_for(response, "RITMO.destinos_novos") is None
+
+
 class TestStepUpMethodDependsOnContext:
     NIGHT = "2026-10-17T22:00:00-03:00"
     NINE_KM_FROM_HOME = {"latitude": -23.479, "longitude": -46.65}

@@ -1,10 +1,10 @@
 from datetime import datetime
 from typing import List, Optional, Tuple
 
-from sqlalchemy import func, literal, or_, select
+from sqlalchemy import and_, func, literal, or_, select
 
 from database import Context
-from models import Account, Analysis, AnalysisStatus, FraudMarker, PixTransaction
+from models import Account, Analysis, AnalysisStatus, FraudMarker, PayerPayeePair, PixTransaction
 
 
 class PixFeatureRepository:
@@ -44,6 +44,34 @@ class PixFeatureRepository:
             .all()
         )
         return [(row.payee_document_number, row.amount) for row in rows]
+
+    def new_payee_attempt_groups(self, payer_document: str, start: datetime, end: datetime) -> List[Tuple[int, int]]:
+        """As tentativas do pagador na janela para destinos que ele viu pela PRIMEIRA vez dentro dela.
+
+        Cada (conta destino, valor) distinto volta uma vez só. O par
+        pagador-recebedor guarda quando o destino apareceu pela primeira
+        vez: um destino "novo na janela" é o que tem `first_seen_at` dentro
+        dela, mesmo que o Pix já tenha sido aprovado (e o par já exista).
+        """
+        rows = (
+            self.session.query(PixTransaction.destination_account_id, PixTransaction.amount)
+            .join(
+                PayerPayeePair,
+                and_(
+                    PayerPayeePair.payer_document_number == PixTransaction.payer_document_number,
+                    PayerPayeePair.destination_account_id == PixTransaction.destination_account_id,
+                ),
+            )
+            .filter(
+                PixTransaction.payer_document_number == payer_document,
+                PixTransaction.transaction_date >= start,
+                PixTransaction.transaction_date <= end,
+                PayerPayeePair.first_seen_at >= start,
+            )
+            .distinct()
+            .all()
+        )
+        return [(row.destination_account_id, row.amount) for row in rows]
 
     def sum_approved_between_people(
         self,

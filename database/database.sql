@@ -347,6 +347,12 @@ CROSS JOIN (VALUES
     ('RITMO.velocidade',
      '{"window_minutes": 10, "two_factor_count": 5, "reject_count": 10, "min_window_amount": 100000}'),
 
+    -- Estimativa: 3 ou mais destinos NOVOS distintos em 10 min, somando R$ 2.000
+    -- ou mais, pedem biometria (a mão fantasma do acesso remoto, que o
+    -- sinal de velocidade só pegava a partir do 5º Pix).
+    ('RITMO.destinos_novos',
+     '{"window_minutes": 10, "min_count": 3, "min_amount": 200000}'),
+
     -- Estimativa: 3 ou mais Pix em 1 h, cada um entre 90 e 100 por cento de um
     -- limite da política (R$ 200 do aparelho não cadastrado, R$ 1.000 do
     -- noturno), pedem 2FA de limite.

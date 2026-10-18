@@ -6,6 +6,7 @@ from utils.money import format_brl
 
 VELOCITY = "RITMO.velocidade"
 FRACTIONING = "RITMO.fracionamento"
+NEW_PAYEES = "RITMO.destinos_novos"
 
 
 class RitmoRule(BaseRule):
@@ -21,8 +22,46 @@ class RitmoRule(BaseRule):
         super().__init__()
         self.signals = {
             VELOCITY: (0, self._evaluate_velocity),
+            NEW_PAYEES: (0, self._evaluate_new_payees),
             FRACTIONING: (2, self._evaluate_fractioning),
         }
+
+    def _evaluate_new_payees(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> SignalResult:
+        """Rajada para destinos novos: a mão fantasma do acesso remoto.
+
+        Quem opera a conta por acesso remoto, do aparelho de sempre, manda
+        vários Pix para contas que o titular nunca pagou. A velocidade só
+        trava a partir do 5º Pix; aqui, 3 destinos novos distintos em 10
+        minutos, somando R$ 2.000 ou mais, já pedem biometria (a
+        confirmação no app não prova nada com o celular nas mãos de outro).
+        """
+        min_count = parameters["min_count"]
+        min_amount = parameters["min_amount"]
+        new_payees = features.new_payee_burst_count
+        window_amount = features.new_payee_burst_amount
+
+        observed = {"new_payees": new_payees, "window_amount": window_amount}
+        threshold = {
+            "window_minutes": parameters["window_minutes"],
+            "min_count": min_count,
+            "min_amount": min_amount,
+        }
+
+        if new_payees >= min_count and window_amount >= min_amount:
+            return self.result(
+                NEW_PAYEES,
+                0,
+                TWO_FACTOR,
+                f"{new_payees} destinos novos em {parameters['window_minutes']} minutos, somando "
+                f"{format_brl(window_amount)}: padrão de conta sendo operada à distância.",
+                typology=ATO,
+                observed=observed,
+                threshold=threshold,
+            )
+
+        return self.result(
+            NEW_PAYEES, 0, PASS, "Sem rajada de Pix para destinos novos.", observed=observed, threshold=threshold
+        )
 
     def _evaluate_velocity(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> SignalResult:
         """Contagem E soma na mesma janela.

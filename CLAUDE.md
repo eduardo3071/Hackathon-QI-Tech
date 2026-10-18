@@ -238,6 +238,15 @@ pode ser nulo, `to_status_id`, `event_datetime`, `created_at`). Toda análise gr
   (R$ 1.890 para conta de 15 dias) passava por "dentro do perfil". O `observed.basis` do sinal diz qual base valeu
   (`general` ou `new_payees`).
 
+## Rajada para destinos novos — `RITMO.destinos_novos` (bateria de realidade, item 6)
+
+- Regra 3, camada 0: **3 ou mais Pix para destinos novos distintos em 10 minutos, somando R$ 2.000 ou mais** pedem 2FA
+  com `face_liveness` (motivo `account_takeover`, placar `ato`). "Destino novo" é o que o pagador viu pela primeira vez
+  dentro da janela; vários Pix ao mesmo destino contam um destino só.
+- Parâmetros em `rule_parameter` (`window_minutes: 10`, `min_count: 3`, `min_amount: 200000`).
+- Por quê: na "mão fantasma" (acesso remoto, 7 Pix em 6 minutos para destinos novos, do aparelho de sempre), 4 Pix e
+  R$ 5.200 saíam antes de a velocidade (5º Pix) pedir 2FA.
+
 ## Velocidade
 
 - Reenvio com `id` novo, mesmo pagador, mesmo recebedor e mesmo valor dentro da janela conta como **uma** tentativa.
