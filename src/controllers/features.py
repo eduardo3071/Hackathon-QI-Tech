@@ -82,6 +82,9 @@ class PixFeatures:
     # distância deste Pix até o mais próximo deles (None sem geolocalização).
     zone_known_locations: int
     zone_nearest_km: Optional[float]
+    # O mesmo, só com os locais "habituais": de Pix aprovados há pelo menos
+    # 24 h. O Pix aprovado longe de casa não vira habitual na hora.
+    habitual_nearest_km: Optional[float]
 
     # Regra 6 — conta recebedora
     payee_account_age_days: int

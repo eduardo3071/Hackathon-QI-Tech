@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from constants import LOCAL_TIMEZONE
@@ -128,6 +129,9 @@ class FeatureBuilder:
             last_location_hours=last_location["hours"],
             zone_known_locations=len(profile.recent_locations) if profile is not None else 0,
             zone_nearest_km=self._zone_nearest_km(pix, profile),
+            habitual_nearest_km=self._zone_nearest_km(
+                pix, profile, older_than=self._habitual_cutoff(transaction_date, params.of("DECISAO.placares"))
+            ),
             payee_account_age_days=max(0, (transaction_date - destination_account.opening_date).days),
             payee_prior_approved_credits=self.pix_feature_repository.count_credits(
                 destination_account.id, AnalysisStatus.APPROVED
@@ -491,17 +495,34 @@ class FeatureBuilder:
             pix["payee_document"], end - timedelta(days=parameters["max_account_age_days"]), end
         )
 
-    def _zone_nearest_km(self, pix: dict, profile):
-        """A distância deste Pix até o local conhecido mais próximo do pagador."""
+    def _zone_nearest_km(self, pix: dict, profile, older_than: Optional[datetime] = None):
+        """A distância deste Pix até o local conhecido mais próximo do pagador.
+
+        Com `older_than`, só contam os locais de Pix aprovados até essa data:
+        são os locais habituais, e sem nenhum o resultado é None.
+        """
         if pix["latitude"] is None or profile is None or not profile.recent_locations:
+            return None
+
+        locations = profile.recent_locations
+        if older_than is not None:
+            locations = [location for location in locations if datetime.fromisoformat(location["at"]) <= older_than]
+        if not locations:
             return None
 
         distances = [
             haversine_km(location["latitude"], location["longitude"], float(pix["latitude"]), float(pix["longitude"]))
-            for location in profile.recent_locations
+            for location in locations
         ]
 
         return round(min(distances), 3)
+
+    def _habitual_cutoff(self, transaction_date: datetime, parameters) -> Optional[datetime]:
+        """Até quando um Pix aprovado precisa ter acontecido para o local dele ser habitual (24 h antes deste)."""
+        if parameters is None:
+            return None
+
+        return transaction_date - timedelta(hours=parameters["habitual_location_min_hours"])
 
     def _payer_biometric_failed_recently(self, payer_document: str, transaction_date: datetime, parameters) -> bool:
         """Se alguma biometria deste pagador foi reprovada na janela de bloqueio (24 h) que termina neste Pix."""

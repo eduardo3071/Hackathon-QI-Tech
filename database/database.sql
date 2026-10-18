@@ -478,7 +478,7 @@ CROSS JOIN (VALUES
     -- houve biometria reprovada em 24 h ou o Pix está a mais de 5 km de todos
     -- os últimos locais aprovados (inspiração: Modo Rua do Nubank).
     ('DECISAO.placares',
-     '{"ato_cut": 60, "app_cut": 60, "mule_cut": 60, "app_warn_cut": 30, "mule_min_distinct_signals": 2, "deep_layer_timeout_ms": 300, "street_mode_km": 5}')
+     '{"ato_cut": 60, "app_cut": 60, "mule_cut": 60, "app_warn_cut": 30, "mule_min_distinct_signals": 2, "deep_layer_timeout_ms": 300, "street_mode_km": 5, "habitual_location_min_hours": 24}')
 ) AS parameter(signal_code, parameters)
 WHERE policy_version.version = '2026.10.1';
 

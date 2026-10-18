@@ -278,6 +278,14 @@ ou mais; o parâmetro `new_client_min_account_age_days` saiu do seed).
 - PF sem geolocalização, e PJ em aparelho novo, continuam com o limite reduzido. `RITMO.destinos_novos` não muda: a
   primeira folha para funcionários novos continua pedindo biometria uma vez, de propósito.
 
+## Local habitual só depois de 24 h (decisão de 18/10)
+
+- Para o Modo Rua do método do 2FA (`street_mode_km`) e para o `LIMITE.noturno_fora_de_casa`, só contam como locais
+  habituais os de Pix aprovados há pelo menos 24 h (`habitual_location_min_hours: 24` em `DECISAO.placares`).
+  O `QUEM_OPERA.fora_da_zona` não muda.
+- Por quê: na bateria (F6), o Pix que o ladrão aprovou na rua virava "local habitual" na hora, e o 2º Pix caía na
+  confirmação no app, que o ladrão com o celular desbloqueado confirma.
+
 ## Velocidade
 
 - Reenvio com `id` novo, mesmo pagador, mesmo recebedor e mesmo valor dentro da janela conta como **uma** tentativa.

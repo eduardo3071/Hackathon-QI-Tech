@@ -98,10 +98,14 @@ class AnalysisEngine:
         seguidos no app. Por isso `in_app_confirmation` só fica para o
         aparelho confiável, sem biometria reprovada nas últimas 24 h, perto
         de onde o pagador costuma estar. Longe de TODOS os últimos locais
-        aprovados (mais de `street_mode_km`) vale a biometria: é o que o
-        Modo Rua do Nubank faz.
+        aprovados há pelo menos 24 h (mais de `street_mode_km`) vale a
+        biometria: é o que o Modo Rua do Nubank faz.
         """
-        far_from_usual_places = features.zone_nearest_km is not None and features.zone_nearest_km > cuts["street_mode_km"]
+        # Os locais habituais são os de Pix aprovados há pelo menos 24 h: o
+        # Pix que o ladrão aprovou na rua há 2 minutos não vira "casa".
+        far_from_usual_places = (
+            features.habitual_nearest_km is not None and features.habitual_nearest_km > cuts["street_mode_km"]
+        )
 
         return not features.device_trusted or features.payer_biometric_failed_recently or far_from_usual_places
 
