@@ -187,9 +187,10 @@ class TestTwoFactorReturnScenarios:
         assert first["metadata"]["step_up_reason"] == "possible_scam"
         send_two_factor_return(first, "passed", shift_date(DAY, minutes=2))
 
-        # O perfil agora tem os 5 Pix de R$ 100 e o de R$ 2.000: o P95 é
-        # R$ 2.000, e R$ 2.000 não passa dele.
-        second = send(**origin, **scammer, amount=200000, transaction_date=shift_date(DAY, days=1))
+        # O Pix confirmado sob aviso de golpe não entra no perfil (item 1 da
+        # bateria de realidade): o perfil segue com os 5 Pix de R$ 100, e
+        # só um Pix desse tamanho está dentro dele.
+        second = send(**origin, **scammer, amount=10000, transaction_date=shift_date(DAY, days=1))
 
         assert second["status"] == "approved"
         assert reason_for(second, "CONTA_RECEBEDORA.suspeita_anterior") is None

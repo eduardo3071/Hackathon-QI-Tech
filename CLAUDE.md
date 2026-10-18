@@ -154,8 +154,11 @@ pode ser nulo, `to_status_id`, `event_datetime`, `created_at`). Toda análise gr
   **confiável na hora** para este pagador. O Pix entra no perfil, na soma noturna e no par pagador-recebedor.
 - `passed` com `in_app_confirmation` por `limit` → o Pix entra no perfil, na soma noturna e no par, mas não
   cadastra o aparelho sozinho.
-- `passed` com `step_up_reason: possible_scam` → o Pix entra no perfil e na soma noturna, mas **não torna o destino
-  recorrente**: a vítima de golpe confirma o Pix e costuma pagar o mesmo golpista de novo (falso investimento).
+- `passed` com aviso de golpe (`scam_warning`) → o Pix **não entra no perfil** (nem na mediana, nem no P95) e **não
+  torna o destino recorrente**; conta só para a soma noturna e para os tetos diários (que olham os Pix aprovados).
+  (Revisado após a bateria de realidade, item 1: antes ele entrava no perfil, e a vítima da falsa central, depois de
+  confirmar R$ 4.800 e R$ 4.500, via o de R$ 3.900 sair sem sinal — o golpe "educava" o perfil.)
+  A vítima de golpe confirma o Pix e costuma pagar o mesmo golpista de novo (falso investimento).
   Grave isso no par (`scam_step_up_count`), e o atenuante de destino recorrente do `PERFIL.valor` não vale para ele.
   A suspeita também não some com o 2FA confirmado: veja `CONTA_RECEBEDORA.suspeita_anterior` abaixo.
 - `failed` → status `rejected`. Se o motivo era `account_takeover`, o aparelho fica **bloqueado para confiança por

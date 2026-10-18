@@ -214,7 +214,7 @@ class PixTransactionController(BaseController):
             self.payer_payee_pair_repository.get(payer_document, pix_transaction.destination_account_id),
             is_night=bool(analysis.features["is_night"]),
             same_ownership=analysis.features["same_ownership"],
-            recurring_destination=not analysis.scam_warning,
+            confirmed_scam_warning=analysis.scam_warning,
             params=params,
         )
 
@@ -338,7 +338,7 @@ class PixTransactionController(BaseController):
             pair,
             is_night=bool(features.is_night),
             same_ownership=features.same_ownership,
-            recurring_destination=True,
+            confirmed_scam_warning=False,
             params=params,
         )
 
@@ -349,24 +349,31 @@ class PixTransactionController(BaseController):
         pair,
         is_night: bool,
         same_ownership: bool,
-        recurring_destination: bool,
+        confirmed_scam_warning: bool,
         params: PolicyParameters,
     ) -> None:
         """Um Pix que saiu: o perfil, o par e o aparelho aprendem com ele.
 
         Serve ao Pix aprovado direto (POST) e ao que passou no 2FA (PATCH):
         "Pix aprovado" é um só, por qualquer caminho que tenha saído.
+
+        Exceção: o Pix confirmado sob aviso de golpe (`confirmed_scam_warning`)
+        NÃO ensina o perfil nem torna o destino recorrente. A vítima
+        manipulada confirma, e se o Pix entrasse na mediana e no P95, o
+        golpe "educaria" o perfil: o seguinte, de valor parecido, sairia sem
+        sinal nenhum. Ele conta só para a soma noturna e para os tetos
+        diários, que olham os Pix aprovados e não o perfil.
         """
         payer_document = pix["payer_document"]
         transaction_date = pix["transaction_date"]
 
         profile = self.payer_profile_repository.get_or_create(payer_document)
-        self.payer_profile_repository.add_approved(profile, pix["amount"], transaction_date)
 
-        if recurring_destination:
-            self.payer_payee_pair_repository.add_approved(pair, pix["amount"])
-        else:
+        if confirmed_scam_warning:
             self.payer_payee_pair_repository.add_scam_step_up(pair)
+        else:
+            self.payer_profile_repository.add_approved(profile, pix["amount"], transaction_date)
+            self.payer_payee_pair_repository.add_approved(pair, pix["amount"])
 
         # Com a confiança bloqueada (biometria reprovada há menos de 24 h),
         # o Pix aprovado não conta para tornar o aparelho confiável.
