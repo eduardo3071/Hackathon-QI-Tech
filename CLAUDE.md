@@ -297,6 +297,15 @@ ou mais; o parâmetro `new_client_min_account_age_days` saiu do seed).
 - Mesma titularidade e recebedor PJ → `not_needed`. É sinal de golpe, não de laranja: sozinho nunca recusa.
 - Parâmetros em `rule_parameter` (`max_account_age_days: 30`, `min_amount: 100000`, `points: 60`), estimativas.
 
+## Falso investimento — `PERFIL.escalada` (Regra 4, camada 1; decisão de 18/10)
+
+- Nos últimos 7 dias, 2 ou mais Pix aprovados para este destino (contam os confirmados sob aviso de golpe), valores
+  estritamente crescentes, o atual maior que o último e pelo menos 3× o primeiro → `app` 60 (2FA com aviso) com o
+  valor atual de R$ 300 ou mais; abaixo disso, `app` 40 (faixa de aviso).
+- Mesma titularidade e recebedor PJ com conta de 1 ano ou mais → `not_needed` (uma corretora de verdade é PJ antiga).
+- Olha a sequência, não o perfil: no simulador, cada Pix do falso investimento parecia normal sozinho.
+- Parâmetros em `rule_parameter` (estimativas).
+
 ## Velocidade
 
 - Reenvio com `id` novo, mesmo pagador, mesmo recebedor e mesmo valor dentro da janela conta como **uma** tentativa.

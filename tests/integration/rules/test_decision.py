@@ -162,6 +162,7 @@ class TestDecisionLayers:
             "QUEM_OPERA.fora_da_zona",
             "ANOMALIA.ml",
             "CONTA_RECEBEDORA.primeiro_pix_alto",
+            "PERFIL.escalada",
         }
 
     def test_rejected_pix_is_recorded_and_consultable(self):

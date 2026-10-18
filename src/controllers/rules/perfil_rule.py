@@ -9,6 +9,7 @@ from models import Account
 from utils.money import format_brl
 
 VALUE = "PERFIL.valor"
+ESCALATION = "PERFIL.escalada"
 
 
 def percentile(amounts: list, percent: int) -> int:
@@ -38,7 +39,10 @@ class PerfilRule(BaseRule):
 
     def __init__(self) -> None:
         super().__init__()
-        self.signals = {VALUE: (1, self._evaluate_value)}
+        self.signals = {
+            VALUE: (1, self._evaluate_value),
+            ESCALATION: (1, self._evaluate_escalation),
+        }
 
     @staticmethod
     def profile_check(features: PixFeatures, parameters: dict) -> dict:
@@ -181,3 +185,50 @@ class PerfilRule(BaseRule):
             observed=observed,
             threshold=threshold,
         )
+
+    def _evaluate_escalation(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> SignalResult:
+        """Valores crescentes para o mesmo destino em poucos dias: o falso investimento.
+
+        Cada Pix, sozinho, parece normal; a sequência não. Olha os Pix
+        aprovados para esta conta nos últimos 7 dias — inclusive os
+        confirmados sob aviso de golpe, porque a vítima confirma —, e
+        dispara quando são 2 ou mais, estritamente crescentes, e o atual é
+        maior que o último e pelo menos 3x o primeiro. Uma corretora de
+        verdade é PJ antiga: para ela, não se aplica.
+        """
+        if features.same_ownership:
+            return self.not_needed(ESCALATION, 1, "Mesma titularidade: mover o próprio dinheiro não é golpe.")
+
+        if features.payee_type == Account.COMPANY and features.payee_account_age_days >= parameters["company_min_account_age_days"]:
+            return self.not_needed(ESCALATION, 1, "Recebedor PJ com conta antiga: uma corretora de verdade.")
+
+        previous = features.pair_recent_approved_amounts
+        sequence = previous + [features.amount]
+        growing = len(previous) >= parameters["min_previous_pix"] and all(
+            earlier < later for earlier, later in zip(sequence, sequence[1:])
+        )
+        multiple = features.amount / previous[0] if previous else 0
+
+        observed = {"sequence": sequence, "multiple_of_first": round(multiple, 2)}
+        threshold = {
+            "window_days": parameters["window_days"],
+            "min_previous_pix": parameters["min_previous_pix"],
+            "min_multiple_of_first": parameters["min_multiple_of_first"],
+            "high_min_amount": parameters["high_min_amount"],
+        }
+
+        if growing and multiple >= parameters["min_multiple_of_first"]:
+            points = parameters["high_points"] if features.amount >= parameters["high_min_amount"] else parameters["points"]
+            return self.result(
+                ESCALATION,
+                1,
+                WARN,
+                f"{len(sequence)} Pix crescentes para o mesmo destino em {parameters['window_days']} dias, o atual "
+                f"{multiple:.1f}x o primeiro: padrão do golpe do falso investimento.",
+                typology=APP,
+                points=points,
+                observed=observed,
+                threshold=threshold,
+            )
+
+        return self.result(ESCALATION, 1, PASS, "Sem escalada de valores para este destino.", observed=observed, threshold=threshold)

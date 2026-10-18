@@ -477,6 +477,14 @@ CROSS JOIN (VALUES
     ('CONTA_RECEBEDORA.primeiro_pix_alto',
      '{"max_account_age_days": 30, "min_amount": 100000, "points": 60}'),
 
+    -- Estimativa: 2 ou mais Pix aprovados (inclusive sob aviso de golpe)
+    -- para o mesmo destino em 7 dias, estritamente crescentes, e o atual
+    -- pelo menos 3x o primeiro — o falso investimento. A partir de R$ 300
+    -- pontua golpe no corte (60, 2FA com aviso); abaixo, 40 (aviso). PJ
+    -- com conta de 1 ano ou mais fica de fora (corretora de verdade).
+    ('PERFIL.escalada',
+     '{"window_days": 7, "min_previous_pix": 2, "min_multiple_of_first": 3, "high_min_amount": 30000, "high_points": 60, "points": 40, "company_min_account_age_days": 365}'),
+
     -- Estimativa: cortes dos placares e tempo limite da camada 2. Recusar
     -- por conta laranja exige o placar no corte E 2 sinais de laranja
     -- diferentes: um sinal sozinho não é "risco claro". Todo 2FA vira

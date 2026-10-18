@@ -368,3 +368,23 @@ class PixFeatureRepository:
             )
             .scalar()
         )
+
+    def approved_amounts_to_destination(
+        self, payer_document: str, destination_account_id: int, start: datetime, end: datetime, status_enumerator: str
+    ) -> List[int]:
+        """Os valores dos Pix do pagador para esta conta na janela `[início, fim)`, com o status pedido, em ordem de data."""
+        rows = (
+            self.session.query(PixTransaction.amount)
+            .join(Analysis, Analysis.pix_transaction_id == PixTransaction.id)
+            .join(AnalysisStatus, AnalysisStatus.id == Analysis.status_id)
+            .filter(
+                PixTransaction.payer_document_number == payer_document,
+                PixTransaction.destination_account_id == destination_account_id,
+                PixTransaction.transaction_date >= start,
+                PixTransaction.transaction_date < end,
+                AnalysisStatus.enumerator == status_enumerator,
+            )
+            .order_by(PixTransaction.transaction_date, PixTransaction.id)
+            .all()
+        )
+        return [row.amount for row in rows]

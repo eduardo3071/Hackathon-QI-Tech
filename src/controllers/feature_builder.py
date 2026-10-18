@@ -116,6 +116,9 @@ class FeatureBuilder:
             pair_approved_days=pair_approved_days,
             pair_max_approved_amount=pair_max_approved_amount,
             pair_scam_step_up_count=pair_scam_step_up_count,
+            pair_recent_approved_amounts=self._pair_recent_approved_amounts(
+                pix, destination_account, params.of("PERFIL.escalada")
+            ),
             destination_recurring=destination_recurring,
             destination_monthly_bill=destination_monthly_bill,
             device_distinct_payers=self._device_distinct_payers(
@@ -542,4 +545,16 @@ class FeatureBuilder:
         return any(
             DeviceTrust.is_trusted(device_owner, transaction_date, parameters)
             for device_owner in self.device_owner_repository.list_by_document(payer_document)
+        )
+
+    def _pair_recent_approved_amounts(self, pix: dict, destination_account: Account, parameters):
+        """Os valores aprovados do pagador para esta conta na janela da escalada, do mais antigo ao mais novo."""
+        if parameters is None:
+            return None
+
+        end = pix["transaction_date"]
+
+        return self.pix_feature_repository.approved_amounts_to_destination(
+            pix["payer_document"], destination_account.id, end - timedelta(days=parameters["window_days"]), end,
+            AnalysisStatus.APPROVED,
         )

@@ -61,6 +61,9 @@ class PixFeatures:
     pair_approved_days: int
     pair_max_approved_amount: int
     pair_scam_step_up_count: int
+    # Os Pix aprovados (inclusive os confirmados sob aviso de golpe) para
+    # esta conta nos últimos dias, em ordem: a sequência da escalada.
+    pair_recent_approved_amounts: Optional[List[int]]
     # Se o destino vale como "a conta do mês": calculado pelo FeatureBuilder
     # (precisa do valor deste Pix e dos parâmetros da política).
     destination_recurring: bool
