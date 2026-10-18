@@ -197,3 +197,54 @@ class TestRulePerfilValorSegundoDegrau:
         assert response["status"] == "approved"
         assert response["metadata"]["recommended_action"] == "warn"
         assert reason_for(response, "PERFIL.valor")["typology"] == "app"
+
+
+class TestRulePerfilValorTetoSemHistorico:
+    """Regra 4 — PERFIL.valor sem histórico suficiente: um teto para o valor muito alto.
+
+    Com menos de 5 Pix não há mediana, e o segundo degrau nunca valia: um
+    aparelho que ficou confiável com dois Pix de R$ 100 mandava, no dia
+    seguinte, R$ 200.000 a um destino novo só com aviso. Com o valor no
+    teto (`high_fallback_amount`, R$ 10.000) ou acima, vale o mesmo
+    caminho do segundo degrau: 2FA com aviso de golpe.
+    """
+
+    def _payer_with_two_pix(self) -> dict:
+        """Aparelho confiável com dois Pix de R$ 100: histórico curto, abaixo de `min_history`."""
+        context = {"payer_document": RandomGenerator.generate_cpf(), "device_id": f"dvc-{uuid4().hex[:12]}"}
+        Scenario.register_device(context["payer_document"], context["device_id"], shift_date(DAY, days=-1))
+
+        return context
+
+    def test_very_high_amount_with_short_history_requires_two_factor_with_scam_warning(self):
+        context = self._payer_with_two_pix()
+
+        response = Scenario.send(**context, amount=20000000, transaction_date=DAY)
+
+        assert response["status"] == "two_factor_required"
+        assert response["metadata"]["step_up_reason"] == "possible_scam"
+        assert response["metadata"]["scam_warning"] is True
+        reason = reason_for(response, "PERFIL.valor")
+        assert reason["typology"] == "app"
+        assert reason["threshold"]["high_fallback_amount"] == 1000000
+
+    def test_just_below_the_ceiling_stays_approved_with_warning(self):
+        context = self._payer_with_two_pix()
+
+        response = Scenario.send(**context, amount=900000, transaction_date=DAY)
+
+        assert response["status"] == "approved"
+        assert response["metadata"]["recommended_action"] == "warn"
+        assert reason_for(response, "PERFIL.valor")["typology"] == "app"
+
+    def test_same_ownership_above_the_ceiling_stays_approved(self):
+        context = self._payer_with_two_pix()
+
+        response = Scenario.send(
+            **context,
+            payee_document=context["payer_document"],
+            amount=2000000,
+            transaction_date=DAY,
+        )
+
+        assert response["status"] == "approved"

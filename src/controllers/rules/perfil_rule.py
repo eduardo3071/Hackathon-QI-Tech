@@ -100,12 +100,18 @@ class PerfilRule(BaseRule):
             }
 
         # Sem histórico suficiente, o limite de partida: entre o Pix médio
-        # entre pessoas (R$ 273) e o ticket médio da fraude (R$ 1.735).
+        # entre pessoas (R$ 273) e o ticket médio da fraude (R$ 1.735). Sem
+        # mediana não há segundo degrau; no lugar dele, um teto: valor muito
+        # alto para quem o motor mal conhece vale como muito fora do perfil.
         return {
             "out_of_profile": amount > parameters["fallback_amount"],
-            "far_out_of_profile": False,
+            "far_out_of_profile": amount >= parameters["high_fallback_amount"],
             "observed": {"amount": amount, "history_size": len(amounts)},
-            "threshold": {"fallback_amount": parameters["fallback_amount"], "min_history": parameters["min_history"]},
+            "threshold": {
+                "fallback_amount": parameters["fallback_amount"],
+                "high_fallback_amount": parameters["high_fallback_amount"],
+                "min_history": parameters["min_history"],
+            },
         }
 
     def _evaluate_value(self, features: PixFeatures, parameters: dict, params: PolicyParameters) -> SignalResult:
@@ -159,7 +165,11 @@ class PerfilRule(BaseRule):
         )
         if check["far_out_of_profile"] and not established_company:
             app_points = parameters["high_app_points"]
-            degree = f" — {parameters['high_median_multiplier']}x a mediana ou mais"
+            degree = (
+                f" — {parameters['high_median_multiplier']}x a mediana ou mais"
+                if "high_median_multiple" in threshold
+                else f" — {format_brl(parameters['high_fallback_amount'])} ou mais, com histórico curto"
+            )
 
         if features.pair_scam_step_up_count > 0:
             return self.result(
