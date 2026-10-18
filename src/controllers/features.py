@@ -30,24 +30,87 @@ class PixFeatures:
     payee_markers: List[dict]
 
     # Regra 2 — aparelho e horário noturno
-    device_known: bool
-    unregistered_devices_day_amount: Optional[int]
+    payer_known: bool
+    payer_account_age_days: int
+    device_trusted: bool
+    payer_has_trusted_device: bool
+    # Biometria reprovada, em QUALQUER aparelho do pagador, nas últimas 24 h.
+    payer_biometric_failed_recently: bool
+    untrusted_devices_day_amount: Optional[int]
     is_night: Optional[bool]
     night_person_to_person_amount: Optional[int]
     max_night_approved_amount: int
 
-    # Regra 3 — velocidade
+    # Regra 3 — velocidade (pares recebedor+valor distintos, sem o deste Pix)
     velocity_attempts: Optional[int]
     velocity_amount: Optional[int]
+    # Valores das tentativas anteriores na janela do fracionamento, um por
+    # par (recebedor, valor), sem o deste Pix.
+    fractioning_window_amounts: Optional[List[int]]
+    # Destinos que o pagador viu pela 1ª vez dentro da janela, contando o
+    # deste Pix se ele também é novo: quantos, e quanto somam os Pix a eles.
+    new_payee_burst_count: Optional[int]
+    new_payee_burst_amount: Optional[int]
 
     # Regra 4 — perfil
     profile_amounts: Optional[List[int]]
+    # Dos valores acima, só os que foram para um destino que o pagador ainda
+    # não tinha pago: a base de comparação quando o destino deste Pix é novo.
+    profile_new_payee_amounts: Optional[List[int]]
     pair_approved_count: int
+    pair_approved_days: int
+    pair_max_approved_amount: int
+    pair_scam_step_up_count: int
+    # Os Pix aprovados (inclusive os confirmados sob aviso de golpe) para
+    # esta conta nos últimos dias, em ordem: a sequência da escalada.
+    pair_recent_approved_amounts: Optional[List[int]]
+    # Se o destino vale como "a conta do mês": calculado pelo FeatureBuilder
+    # (precisa do valor deste Pix e dos parâmetros da política).
+    destination_recurring: bool
+    # O padrão da conta mensal: valor parecido com um pagamento já confirmado
+    # a este destino, feito há pelo menos N dias.
+    destination_monthly_bill: bool
+
+    # Regra 5 — quem está operando
+    device_distinct_payers: Optional[int]
+    ip_distinct_payers: Optional[int]
+    has_geolocation: bool
+    channel: str
+    channel_used_before: Optional[bool]
+    # Até o último Pix APROVADO com geolocalização; None sem esse histórico.
+    # As horas podem ser zero ou negativas (Pix que chegou fora de ordem).
+    last_location_distance_km: Optional[float]
+    last_location_hours: Optional[float]
+    # Zona habitual: quantos locais de Pix aprovados o perfil conhece, e a
+    # distância deste Pix até o mais próximo deles (None sem geolocalização).
+    zone_known_locations: int
+    zone_nearest_km: Optional[float]
+    # O mesmo, só com os locais "habituais": de Pix aprovados há pelo menos
+    # 24 h. O Pix aprovado longe de casa não vira habitual na hora.
+    habitual_nearest_km: Optional[float]
 
     # Regra 6 — conta recebedora
     payee_account_age_days: int
     payee_prior_approved_credits: int
     payee_distinct_payers: Optional[int]
+    # Quanto o recebedor recebeu de terceiros na mesma janela do fan-in,
+    # contando este Pix.
+    payee_window_received: Optional[int]
+    payee_prior_scam_step_ups: Optional[int]
+    # Dias desde o último crédito aprovado que a conta destino recebeu NA
+    # NOSSA BASE; None se o motor nunca a viu receber.
+    payee_days_without_movement: Optional[int]
+    payee_new_account_institutions: Optional[int]
+
+    # Regra 8 — anomalia: para quantos destinos distintos o pagador mandou
+    # nas 24 h anteriores (o "muitos destinos" que nenhuma regra conta).
+    payer_distinct_payees_24h: int
+
+    # Regra 7 — rastro do dinheiro
+    payer_recent_third_party_credits: Optional[int]
+    # Saltos até o documento com marcação mais próximo que mandou dinheiro
+    # (direta ou indiretamente) ao recebedor na janela; None se nenhum.
+    payee_marked_sender_hop: Optional[int]
 
     def to_dict(self) -> dict:
         return asdict(self)

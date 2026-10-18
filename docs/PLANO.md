@@ -1,21 +1,39 @@
 # Plano de desenvolvimento — Motor Antifraude Pix
 
+> **Aviso (18/10):** este plano é o histórico do projeto e está desatualizado em vários pontos (período de aprendizado do cliente desconhecido, destino recorrente, método do 2FA, fan-in, hold_timer, novos sinais). **Valem o README.md e o CLAUDE.md.** Onde este arquivo divergir deles, ignore este arquivo.
+
 Oct 17, 2026 · @Thomaz
 
 O plano entrega até domingo, 18/10, às 12h um motor antifraude Pix que decide pelo tipo de fraude, enxerga a rede de contas a partir do próprio histórico e combina regras explicáveis com um modelo de Machine Learning que sinaliza o que as regras ainda não conhecem, sem prejudicar o cliente legítimo nem atrasar o Pix.
+
+## Status e revisões
+
+**Onde estamos (Oct 17, 2026, 15h15).** Fases 0, 1 e 2 prontas no repositório [eduardo3071/Hackathon-QI-Tech](https://github.com/eduardo3071/Hackathon-QI-Tech), com 67 testes verdes. Uma auditoria por HTTP e um revisor independente acharam falhas, e o desenho foi revisado. A revisão está no `CLAUDE.md` do repositório (versão de 15h15) e nas seções abaixo.
+
+| Revisão | Por quê | Onde no plano |
+| --- | --- | --- |
+| Recusa só com evidência dura; golpe e sinal único de laranja pedem 2FA com aviso de golpe | O slide define reprovar como "quando o risco é claro"; o motor recusava o exemplo do slide e a compra de um carro usado | Como as regras viram decisão |
+| 2FA diz o motivo e o método: biometria facial com liveness para invasão, confirmação com aviso para golpe | Liveness é produto da QI Tech; SMS não protege no SIM swap | Como as regras viram decisão |
+| Aparelho só é confiável com 2 Pix aprovados com 24h de intervalo, ou biometria aprovada | Brecha: um Pix de R$ 10 "cadastrava" o aparelho, e o R$ 5.000 seguinte saía aprovado | Como as regras viram decisão |
+| Cliente que o motor ainda não conhece usa limite de partida pela idade da conta pagadora | Com o banco vazio da avaliação, todo Pix acima de R$ 200 virava 2FA | Como as regras viram decisão |
+| Retorno do 2FA: `PATCH /pix/transaction/{id}` com trilha de status | Sem retorno, o motor nunca aprende com o 2FA confirmado | Como as regras viram decisão; Contrato |
+| Três sinais novos: canal incomum, IP compartilhado, conta pagadora recente | `channel`, `ip` e a abertura da conta pagadora não eram usados por nenhuma regra | Catálogo; Fase 3 |
+| Reenvio do mesmo Pix conta como uma tentativa; hash de idempotência sobre o payload normalizado | Cliente que refaz o Pix era empurrado para a recusa; CPF mascarado gerava 409 falso | Fase 2 |
+| Números do simulador como regressão e fricção, não eficácia; cadeia de hashes rebaixada | O motor só vê Pix de clientes da QI Tech; a cadeia pode ser recalculada por quem acessa o banco | Fases 3 e 4; Riscos |
 
 ## A proposta
 
 O motor responde duas perguntas antes de decidir: quem está apertando o botão e para onde vai o dinheiro. O critério que mais pesa é a profundidade antifraude, e o motor responde a ele com três compromissos ao mesmo tempo: pegar a fraude real, não prejudicar o cliente legítimo e não atrasar o Pix. A maioria dos grupos vai otimizar só o primeiro e entregar um motor de limites que barra a fraude e o cliente bom do mesmo jeito.
 
-1. **Decisão pelo tipo de fraude.** Sinais de conta invadida levam a `two_factor_required`, porque o invasor não tem o segundo fator. Sinais de golpe e de conta laranja levam a `rejected`, porque a vítima manipulada passa no 2FA. O relatório conjunto da EBA e do BCE de 2025 sustenta essa divisão.
+1. **Decisão pelo tipo de fraude.** Sinais de conta invadida pedem `two_factor_required` com biometria facial e liveness, porque o invasor não tem o rosto do dono. Sinais de golpe pedem `two_factor_required` com aviso de golpe na tela, porque a vítima manipulada passa num 2FA comum (relatório EBA-BCE de 2025). `rejected` fica só para o risco claro: marcação de fraude, conta sendo esvaziada ou conta laranja com pelo menos dois sinais.
 2. **O mesmo sinal muda de sentido com o contexto.** Valor alto, de aparelho conhecido, para um destino recorrente é o aluguel. O mesmo valor para um destino novo é risco de golpe. De um aparelho novo, é risco de invasão. Cada contexto tem a sua resposta.
-3. **Erros reais previstos dos dois lados.** O motor é desenhado contra a fraude que passa e contra o cliente bom barrado. Cada caso real de fronteira, como aluguel, viagem, celular novo, racha de conta e lojista, vira cenário de teste com a resposta esperada.
+3. **Erros reais previstos dos dois lados.** O motor é desenhado contra a fraude que passa e contra o cliente bom barrado. Cada caso real de fronteira, como aluguel, viagem, celular novo, racha de conta, lojista e carro usado, vira cenário de teste com a resposta esperada.
 4. **Esforço proporcional ao risco.** O Pix rotineiro sai pelo caminho rápido. Regras de rede e ML só entram quando aparece sinal de risco. A meta do grupo é p95 abaixo de 100 ms no caminho rápido.
 5. **Quatro níveis de resposta em três status.** Além de aprovar, pedir 2FA e recusar, o motor aprova com aviso (`recommended_action: warn`) nos casos de golpe com sinal fraco, como o Alerta Pix do Itaú faz hoje.
-6. **A rede vista do próprio histórico.** Como o banco guarda tudo o que chegou, o motor calcula sinais que só bancos grandes usam: aparelho compartilhado, muitos pagadores para uma conta, dinheiro que entra e sai em minutos e proximidade de conta marcada.
-7. **Regras explicáveis com ML que pega o desconhecido.** As regras cobrem os padrões conhecidos, cada uma com um porquê citável. Um modelo de detecção de anomalia, treinado só com comportamento normal, sinaliza padrões que nenhuma regra descreve.
-8. **Auditável e reproduzível.** Cada análise grava a versão da política, os valores observados, os limites usados e um hash encadeado com a análise anterior do mesmo pagador. Isso responde ao STJ, que em 2026 ligou a responsabilidade do banco à detecção de transação incompatível com o perfil.
+6. **O motor aprende com o 2FA.** O retorno do 2FA cadastra o aparelho quando a biometria passa e, quando o 2FA era por suspeita de golpe, não transforma o golpista em destino recorrente.
+7. **A rede vista do próprio histórico.** Como o banco guarda tudo o que chegou, o motor calcula sinais de rede: aparelho compartilhado, muitos pagadores para uma conta, dinheiro que entra e sai em minutos e proximidade de conta marcada. Eles valem para a base de clientes da QI Tech, que é o que o motor enxerga.
+8. **Regras explicáveis com ML que pega o desconhecido.** As regras cobrem os padrões conhecidos, cada uma com um porquê citável. Um modelo de detecção de anomalia, treinado só com comportamento normal, sinaliza padrões que nenhuma regra descreve.
+9. **Auditável.** Cada análise grava a versão da política, os valores observados, os limites usados e a trilha de status. Isso responde ao STJ, que em 2026 ligou a responsabilidade do banco à detecção de transação incompatível com o perfil.
 
 Todos os parâmetros com origem regulatória são citados. Os demais são estimativas declaradas no README, configuráveis numa tabela versionada.
 
@@ -30,30 +48,34 @@ Profundidade, aqui, é o motor saber que o mesmo sinal significa coisas diferent
 | Sinal | Contexto | Leitura | Resposta |
 | --- | --- | --- | --- |
 | Valor 5× a mediana do pagador | Aparelho conhecido, destino recorrente | Conta do mês: aluguel, escola | Aprova |
-| Valor 5× a mediana do pagador | Aparelho conhecido, destino novo | Possível golpe, com a vítima autenticada | Aviso ou recusa, conforme a conta destino |
+| Valor 5× a mediana do pagador | Aparelho conhecido, destino novo | Possível golpe, com a vítima autenticada | Aviso, ou 2FA com aviso de golpe conforme a conta destino |
 | Valor 5× a mediana do pagador | Aparelho novo ou fora da zona habitual | Possível invasão | 2FA |
 | Muitos pagadores para uma conta | Recebedor PJ | Lojista | Não pontua |
 | Muitos pagadores para uma conta | Recebedor PF com conta recente | Conta laranja | Recusa |
 | Dinheiro entra e sai em minutos | Mesma titularidade | Cliente movendo o próprio saldo | Aprova |
 | Dinheiro entra e sai em minutos | De terceiros para terceiros | Conta de passagem | Recusa |
 
-**Matriz de erros reais.** Cada linha é um caso que acontece todo dia. As oito primeiras são clientes bons que um motor simples barraria; as cinco últimas são fraudes que um motor simples deixaria passar.
+**Matriz de erros reais.** Cada linha é um caso que acontece todo dia. São clientes bons que um motor simples barraria e fraudes que ele deixaria passar. As quatro últimas linhas vieram da auditoria de 15h.
 
 | Caso real | Erro de um motor simples | Como o nosso motor evita |
 | --- | --- | --- |
 | Aluguel de R$ 2.500 todo dia 5 | Recusa por valor fora do perfil | Destino já pago antes pelo pagador atenua o sinal de perfil (Regra 4) |
-| Primeiro Pix do celular comprado ontem | Recusa por aparelho novo | Pede 2FA, que equivale ao cadastro do aparelho previsto pelo BCB; depois de aprovado, o aparelho vira conhecido |
+| Primeiro Pix do celular comprado ontem | Recusa por aparelho novo | Pede 2FA com biometria facial, que equivale ao cadastro do aparelho previsto pelo BCB; com a biometria aprovada no retorno do 2FA, o aparelho fica confiável na hora |
 | Viagem de férias | Recusa por localização | A zona habitual (Regra 5) pede 2FA e nunca recusa; viagem impossível só acima de 900 km/h |
 | Racha da conta do bar: 6 Pix pequenos em 5 minutos | 2FA por velocidade | O sinal de velocidade (Regra 3) combina contagem com soma; rajada de valor baixo pesa menos |
 | Lojista recebendo de 50 clientes por hora | Recusa por fan-in | O sinal de muitos pagadores (Regra 6) só vale para recebedor pessoa física |
 | Salário que entra e vai para o investimento | Recusa por dinheiro em trânsito | O contexto de mesma titularidade tira o caso do sinal de repasse (Regra 7) |
 | Cliente novo, sem histórico, pagando R$ 800 | 2FA por falta de perfil | Limite de partida ancorado no Pix médio entre pessoas (R$ 273) e no ticket médio de fraude (R$ 1.735) |
 | Emergência às 23h acima de R$ 1.000 | Recusa pelo limite padrão, mesmo que o cliente tenha aumentado o próprio limite | O sinal noturno (Regra 2) compara com o histórico noturno do próprio pagador; fora dele, pede 2FA em vez de recusar |
-| Falsa central: cliente no próprio celular | Aprova porque a autenticação está certa | O placar de golpe olha destino novo, valor fora do perfil e a conta destino; recusa com `hold_timer` |
+| Falsa central: cliente no próprio celular | Aprova porque a autenticação está certa | O placar de golpe olha destino novo, valor fora do perfil e a conta destino; pede 2FA com aviso de golpe, e recusa só se a conta destino tiver evidência dura de laranja. Sai o `hold_timer` |
 | Conta laranja antiga e alugada | Aprova porque a conta tem anos | Os sinais de conta dormente (Regra 6) e de repasse rápido (Regra 7) olham comportamento, não idade |
 | Fraudador que sobe valores aos poucos | Aprova porque o valor "virou perfil" | O perfil só usa Pix aprovados, e as tentativas recusadas contam na velocidade |
 | Fracionamento em Pix de R$ 199 | Aprova cada um, abaixo do teto | Limites cumulativos da Regra 2 e o sinal de fracionamento da Regra 3 |
 | Padrão nunca visto: Pix de centavos para muitos destinos | Nenhuma regra dispara | O modelo de anomalia sinaliza |
+| Celular roubado faz Pix de R$ 10 e, 3 minutos depois, R$ 5.000 | Aprova o segundo, porque o primeiro "cadastrou" o aparelho | Aparelho só fica confiável com 2 Pix aprovados com 24h de intervalo ou biometria aprovada; o segundo Pix pede biometria |
+| Carro usado: R$ 35.000 para vendedor com conta de 20 dias | Recusa por conta laranja | Um sinal de laranja sozinho não recusa: pede 2FA com aviso de golpe |
+| Vítima confirma o 2FA e paga o mesmo golpista de novo no dia seguinte | Aprende o golpista como destino recorrente e aprova o segundo Pix | 2FA por suspeita de golpe aprovado não torna o destino recorrente |
+| Primeiro Pix de um cliente que o motor ainda não conhece | 2FA em todo Pix acima de R$ 200 | Conta pagadora com 180 dias ou mais: limite de partida de R$ 1.000 sem 2FA por aparelho |
 
 Cada linha vira um cenário do simulador e um teste HTTP com a resposta esperada. Na apresentação, a tabela aparece com o resultado real de cada caso.
 
@@ -79,13 +101,53 @@ Um Pix rotineiro não paga o custo de um Pix suspeito. O motor avalia em camadas
 
 **O que o simulador mede.** O percentual de Pix no caminho rápido, a latência p50, p95 e p99 de cada caminho, a taxa de 2FA e de recusa em clientes legítimos e a fraude pega por tipologia. A taxa de base justifica o cuidado: com cerca de 6,7 fraudes a cada 100 mil Pix, cada 1% de 2FA desnecessário incomoda uns 150 clientes bons para cada fraude.
 
+## Como as regras viram decisão
+
+A decisão segue as definições do slide da QI Tech: reprovar é "bloquear quando o risco é claro", e o 2FA é "fricção só onde há dúvida". É o mesmo nome da seção que o modelo do README pede.
+
+**`rejected` só com evidência dura.** São as únicas formas de recusar:
+
+1. Marcação de fraude do pagador ou do recebedor (Res. BCB 587/2026).
+2. Velocidade no corte de recusa: a conta sendo esvaziada.
+3. Placar de conta laranja acima do corte com pelo menos dois sinais de laranja diferentes, como conta nova com muitos pagadores, ou conta nova com repasse rápido.
+4. Proximidade de 1 salto de uma conta marcada (Fase 3).
+
+Um sinal de laranja sozinho, por mais pontos que tenha, não recusa: vira 2FA com aviso de golpe.
+
+**`two_factor_required` diz o motivo e o método:**
+
+| Motivo (`step_up_reason`) | Quando | Método (`step_up_method`) | Por quê |
+| --- | --- | --- | --- |
+| `account_takeover` | Aparelho não confiável, viagem impossível, fora da zona habitual, velocidade | `face_liveness` | O invasor não tem o rosto do dono; SMS não serve, porque no SIM swap o fraudador recebe o código. Biometria com liveness é produto da QI Tech |
+| `possible_scam` | Placar de golpe acima do corte, ou um único sinal forte de conta laranja | `in_app_confirmation` com `scam_warning: true` | A vítima manipulada passa em qualquer 2FA; a fricção útil é parar e avisar do golpe |
+| `limit` | Horário noturno acima do histórico do pagador, sem outro sinal | `in_app_confirmation` | É limite, não suspeita: confirmação simples |
+
+Com motivo de invasão e de golpe ao mesmo tempo, o método é `face_liveness` com `scam_warning: true`. Se a camada 2 estourar o tempo, o motor pede 2FA com o motivo do sinal que a acionou.
+
+**`approved` com `warn`** quando o placar de golpe está na faixa de aviso. Precedência: `rejected` vence `two_factor_required`, que vence `approved`.
+
+**Confiança do aparelho.** Um aparelho só é confiável para um pagador com pelo menos 2 Pix aprovados, o primeiro há pelo menos 24h, ou depois de uma biometria aprovada no retorno do 2FA. Enquanto não é confiável, valem R$ 200 por Pix e R$ 1.000 por dia somando todos os Pix aprovados de aparelhos não confiáveis. Isso fecha a brecha em que um Pix de R$ 10 "cadastrava" o aparelho para o ladrão.
+
+**Cliente que o motor ainda não conhece.** Se o motor nunca viu um Pix do pagador e a conta pagadora tem pelo menos 180 dias, o aparelho não pede 2FA até o limite de partida de R$ 1.000. Acima disso, biometria. Em produção o motor nasce com a carga do histórico; isto evita tratar todo cliente como fraude no primeiro dia da avaliação.
+
+**Retorno do 2FA.** O slide define só o POST e o GET. Acrescentamos `PATCH /pix/transaction/{id}` com `{"two_factor_result": "passed" | "failed", "completed_at": ...}`, isolado e removível, porque sem ele o motor nunca aprende com o 2FA confirmado. Cada mudança vira uma linha em `analysis_status_event`, no padrão de trilha de status do Base Service.
+
+| Resultado | O que o motor aprende |
+| --- | --- |
+| `passed` com `face_liveness` | É o cadastro do aparelho previsto pelo BCB: confiável na hora. O Pix entra no perfil, na soma noturna e no par pagador-recebedor |
+| `passed` por `limit` | O Pix entra no perfil, na soma noturna e no par, sem cadastrar o aparelho |
+| `passed` por `possible_scam` | O Pix entra no perfil e na soma noturna, mas o destino **não** vira recorrente: a vítima confirma o golpe e costuma pagar o mesmo golpista de novo |
+| `failed` | Status `rejected`. Se o motivo era invasão, o aparelho fica 24h sem poder virar confiável |
+
+O retorno não reavalia as regras e não conta como tentativa na velocidade. A pergunta sobre o escopo da rota vai ao Slack do hackathon; se a QI Tech disser que está fora, a rota sai sem quebrar o resto.
+
 ## Linha do tempo
 
 &#91;embedded content: linha do tempo · 6 fases e seus portões\]
 
-A Fase 2 é o ponto de segurança: se algo der errado depois dela, o grupo já tem um motor completo para entregar. A Fase 4 começa junto com a Fase 2, tocada por uma pessoa só.
+A Fase 2 ficou pronta às 15h, bem antes do previsto: o grupo já tem um motor completo para entregar, e o tempo ganho vai para as correções da auditoria, o retorno do 2FA e a Fase 3. A Fase 4 começa junto com a Fase 2, tocada por uma pessoa só.
 
-## Fase 0 — Alinhamento e repositório (sáb 13h30–14h30)
+## Fase 0 — Alinhamento e repositório (feita)
 
 A fase termina com o escopo fechado e o repositório rodando com `docker compose up`. É o "processo de RFC" que o slide pede: trocar ideias e definir escopo, sem entregar documento.
 
@@ -99,7 +161,7 @@ A fase termina com o escopo fechado e o repositório rodando com `docker compose
 
 **Portão:** API base de pé em todas as máquinas e lista de regras aprovada pelo grupo.
 
-## Fase 1 — Banco de dados e esqueleto da API (sáb 14h30–17h30)
+## Fase 1 — Banco de dados e esqueleto da API (feita)
 
 A fase termina com todo Pix recebido gravado e consultável, ainda sem regra: o motor aprova tudo. É o critério "solução funcional" garantido cedo, antes de qualquer risco.
 
@@ -115,7 +177,7 @@ A fase termina com todo Pix recebido gravado e consultável, ainda sem regra: o 
 
 **Portão:** os testes de contrato passam e um `docker compose down -v && docker compose up` sobe o banco do zero sem erro.
 
-## Fase 2 — Motor de regras núcleo (sáb 17h30–23h)
+## Fase 2 — Motor de regras núcleo (feita às 15h; em revisão)
 
 A fase termina com o motor decidindo de verdade, com as regras do MVP, a lógica de decisão e o `metadata` explicável. Se o tempo acabar aqui, já existe uma entrega completa.
 
@@ -130,7 +192,7 @@ A fase termina com o motor decidindo de verdade, com as regras do MVP, a lógica
 3. Camada 1: lê as tabelas agregadas e roda as regras de perfil e de contraparte básica, sem chamada externa.
 4. Gatilho: sem sinal de risco, o Pix sai pelo caminho rápido com `approved`. Com sinal, segue para a camada 2.
 5. Camada 2: regras de rede e ML, com tempo limite. Estourou o tempo, a decisão é 2FA.
-6. Decide pelos placares de conta invadida (`ato`), golpe (`app`) e conta laranja (`mule`): `rejected` vence `two_factor_required`, que vence `approved`. Placar de conta laranja ou de golpe acima do corte recusa; placar de conta invadida acima do corte pede 2FA. Placar de golpe na faixa de aviso aprova com `warn`.
+6. Decide pelos placares de conta invadida (`ato`), golpe (`app`) e conta laranja (`mule`): `rejected` vence `two_factor_required`, que vence `approved`. Recusa só com evidência dura; dúvida pede 2FA com motivo e método, como detalha a seção Como as regras viram decisão. Placar de golpe na faixa de aviso aprova com `warn`.
 7. Grava a transação, a análise, cada resultado de regra e as features usadas, atualiza as tabelas agregadas e faz o commit.
 
 **Regras do MVP:** Regra 1 completa; Regra 2 com aparelho não cadastrado e horário noturno; Regra 3 com velocidade; Regra 4 completa; Regra 6 com conta nova e muitos pagadores; e o contexto de mesma titularidade. Elas cobrem as cinco famílias do slide: limite, velocity, montante, perfil e contraparte.
@@ -145,6 +207,8 @@ A fase termina com o motor decidindo de verdade, com as regras do MVP, a lógica
 
 A fase termina com o motor enxergando a rede de contas e com cada decisão imutável e verificável. É aqui que o critério "profundidade antifraude, sem parar no óbvio" se ganha.
 
+**Antes da Fase 3:** as 8 correções da auditoria das 15h e o retorno do 2FA (tarefa 9), na ordem do `CLAUDE.md`. Entram também nesta fase os três sinais novos: canal incomum e IP compartilhado na Regra 5, conta pagadora recente na Regra 7.
+
 - [ ] Regra 5 completa: aparelho compartilhado (CPFs distintos no mesmo `device_id` em 30 dias), viagem impossível e zona habitual, com a geolocalização opcional tratada como `not_evaluated` em vez de aprovar em silêncio
 - [ ] Regra 2: sinal de geolocalização desligada
 - [ ] Regra 3: sinal de fracionamento
@@ -152,7 +216,7 @@ A fase termina com o motor enxergando a rede de contas e com cada decisão imut�
 - [ ] Regra 7: repasse rápido (o CPF pagador recebeu de terceiros nos últimos 60 minutos e repassa a maior parte; o cruzamento é pelo documento, porque a conta de origem não traz ISPB no contrato) e proximidade de conta marcada (consulta recursiva de até 2 saltos em 24h)
 - [ ] Faixa de aviso na decisão: aprovação com `recommended_action: warn`
 - [ ] Política versionada: parâmetros por sinal na tabela `rule_parameter`, uma versão ativa, carregada por seed no `database.sql`. Sem endpoint de configuração, porque o escopo deixa outras APIs de fora
-- [ ] Trilha encadeada por hash: cada análise grava o hash do seu conteúdo somado ao hash da análise anterior do mesmo pagador, gravado sob a mesma trava por pagador. A cadeia é por pagador, e não única para o sistema, porque uma cadeia global obrigaria todo Pix a esperar o último gravado e acabaria com o paralelismo entre clientes. Um teste altera uma linha antiga direto no banco e prova que a cadeia quebra. É a propriedade que a ideia de blockchain buscava, dentro do PostgreSQL
+- [ ] Trilha encadeada por hash: cada análise grava o hash do seu conteúdo somado ao hash da análise anterior do mesmo pagador, gravado sob a mesma trava por pagador. A cadeia é por pagador, e não única para o sistema, porque uma cadeia global obrigaria todo Pix a esperar o último gravado e acabaria com o paralelismo entre clientes. Um teste altera uma linha antiga direto no banco e prova que a cadeia quebra. Fica por último e é a primeira a cortar. O README a descreve como evidência de adulteração simples, sem comparar com blockchain, porque quem tem acesso ao banco consegue recalcular a cadeia
 - [ ] Latência medida e gravada em cada análise (`latency_ms`)
 
 **Portão:** cada sinal novo tem teste HTTP verde e o teste de integridade da cadeia passa.
@@ -182,6 +246,8 @@ A fase termina com um número que nenhum outro grupo vai ter: quantas fraudes de
 
 **Avaliação (`scripts/ml/evaluate.py`).** Uma tabela por cenário, incluindo cada linha da matriz de erros reais, com taxa de fraude pega, taxa de 2FA e de recusa em clientes legítimos, percentual de Pix no caminho rápido e latência p50, p95 e p99 por caminho, comparando regras sozinhas e regras com ML. O slide da apresentação sai daqui.
 
+**Honestidade dos números.** O motor só vê Pix de clientes da QI Tech, então no simulador 70% dos créditos que as contas recebem vêm de pagadores que o motor nunca vê. Os números são teste de regressão da política e medida de fricção, não eficácia. O cenário "padrão novo" foi desenhado pelo grupo: o ML mostra o mecanismo, não a eficácia. O modelo é treinado dentro do container, para as versões das bibliotecas baterem.
+
 **Portão:** o simulador roda de ponta a ponta contra o `docker compose`, o modelo carrega na API e a tabela de avaliação existe, mesmo que o ML fique em sombra.
 
 ## Fase 5 — README, testes finais e apresentação (dom 8h–12h)
@@ -199,7 +265,7 @@ A fase termina com o link do repositório no grupo da final, no Slack, antes das
 **Roteiro da apresentação (7 min):**
 
 1. O problema em um número: o MED recuperou só 9,3% do valor contestado em 2025, então a decisão tem que acontecer antes do Pix sair (40 s)
-2. A tese: 2FA para o invasor, recusa para o golpe (1 min)
+2. A tese: biometria para o invasor, 2FA com aviso para o golpe, recusa só com evidência dura, e o motor aprendendo com o retorno do 2FA (1 min)
 3. Demo ao vivo com quatro Pix: cliente normal, celular roubado, falsa central e conta laranja, mostrando o `metadata` de cada um (2 min)
 4. A rede: como o histórico próprio vira fan-in, repasse rápido e aparelho compartilhado (1 min)
 5. O resultado do simulador: fraude pega por tipo e fricção em cliente bom, com e sem ML (1 min 20 s)
@@ -209,7 +275,7 @@ A fase termina com o link do repositório no grupo da final, no Slack, antes das
 
 ## Catálogo de regras
 
-São 8 regras compostas. Cada uma responde uma pergunta e combina sinais: ao todo, 17 sinais, mais o contexto de mesma titularidade e a faixa de aviso da decisão. Valores em centavos no código (R$ 200 = 20.000).
+São 8 regras compostas. Cada uma responde uma pergunta e combina sinais: ao todo, 20 sinais, mais o contexto de mesma titularidade e a faixa de aviso da decisão. Valores em centavos no código (R$ 200 = 20.000).
 
 | Regra | Pergunta | Família do slide | Sinais | Saída típica |
 | --- | --- | --- | --- | --- |
@@ -217,9 +283,9 @@ São 8 regras compostas. Cada uma responde uma pergunta e combina sinais: ao tod
 | 2. Limite por contexto | O valor cabe no limite deste contexto? | Limite e montante | 3 | 2FA |
 | 3. Ritmo | Rápido demais ou somou demais? | Velocity e montante | 2 | 2FA ou recusa |
 | 4. Perfil do pagador | Está no padrão deste cliente? | Perfil | 1 | Pontua golpe ou invasão |
-| 5. Quem está operando | É o dono da conta? | Perfil | 3 | 2FA |
+| 5. Quem está operando | É o dono da conta? | Perfil | 5 | 2FA |
 | 6. Conta recebedora | Quem recebe é confiável? | Contraparte | 4 | Pontua conta laranja |
-| 7. Rastro do dinheiro | O dinheiro está só de passagem? | Contraparte | 2 | Recusa |
+| 7. Rastro do dinheiro | O dinheiro está só de passagem? | Contraparte | 3 | Recusa |
 | 8. Anomalia (ML) | É diferente de tudo que é normal? | Perfil | 1 | Pontua; nunca recusa sozinha |
 
 **Sinais.** Cada sinal tem código próprio, parâmetro, saída e camada. A coluna "Antes" liga cada sinal à numeração antiga do plano, como prova de que nada se perdeu na condensação.
@@ -227,7 +293,7 @@ São 8 regras compostas. Cada uma responde uma pergunta e combina sinais: ao tod
 | Sinal | Antes | Lógica | Parâmetro inicial | Saída | Camada | Fase |
 | --- | --- | --- | --- | --- | --- | --- |
 | `MARCACAO.lista` | R12 | Pagador ou recebedor na tabela local que simula o DICT | — (norma, Res. BCB 587/2026) | Recusa | 0 | 2 |
-| `LIMITE.aparelho_nao_cadastrado` | R2 | Aparelho sem Pix aprovado desse pagador | R$ 200 por Pix, R$ 1.000 por dia (norma, Res. BCB 402/2024) | 2FA | 0 | 2 |
+| `LIMITE.aparelho_nao_cadastrado` | R2 | Aparelho não confiável: menos de 2 Pix aprovados com 24h de intervalo e sem biometria aprovada; cliente desconhecido com conta de 180 dias ou mais usa o limite de partida | R$ 200 por Pix, R$ 1.000 por dia (norma, Res. BCB 403/2024) | 2FA | 0 | 2 |
 | `LIMITE.noturno` | R5 | Soma PF→PF entre 20h e 6h (Brasília) acima do padrão do BCB e acima do maior Pix noturno aprovado do pagador | R$ 1.000 (padrão da Res. BCB 142/2021); o motor não recebe o limite configurado do cliente, então é sinal, não teto | 2FA; com sinal de golpe ou laranja, recusa | 0 | 2 |
 | `LIMITE.sem_geolocalizacao` | R15 | Sem `geolocation` e valor acima de um limite reduzido | faculdade da IN BCB 669; valor estimado | 2FA | 1 | 3 |
 | `RITMO.velocidade` | R4 | Tentativas do pagador em janela deslizante, incluindo recusadas, combinando contagem e soma | 5 em 10 min → 2FA; 10 → recusa (estimativa) | 2FA ou recusa | 0 | 2 |
@@ -243,6 +309,9 @@ São 8 regras compostas. Cada uma responde uma pergunta e combina sinais: ao tod
 | `RASTRO.repasse_rapido` | R9 | CPF pagador recebeu de terceiros e repassa a maior parte; cruzamento pelo documento | 60 min (com dado), 80% (estimativa) | Recusa | 2 | 3 |
 | `RASTRO.proximidade_marcada` | R14 | Recebedor recebeu de conta marcada | 1 salto → recusa; 2 saltos em 24h → pontua (estimativa) | Recusa ou pontua | 2 | 3 |
 | `ANOMALIA.ml` | R19 | Escore do Isolation Forest sobre as features da análise | modo sombra ou ativo, com teto de pontos | Pontua; nunca recusa sozinho | 2 | 4 |
+| QUEM\_OPERA.canal\_incomum | novo | Canal (source.channel) que o pagador nunca usou num Pix aprovado, com valor acima do limite de partida | limite de partida de R$ 1.000 (estimativa) | Pontua invasão | 1 | 3 |
+| QUEM\_OPERA.ip\_compartilhado | novo | CPFs pagadores distintos no mesmo IP; só pontua junto com aparelho não confiável, porque redes móveis põem muita gente no mesmo IP | 3 CPFs em 1h (estimativa) | Pontua invasão; nunca decide sozinho | 2 | 3 |
+| RASTRO.conta\_pagadora\_recente | novo | Conta pagadora aberta há pouco mandando valor acima do limite de partida para destino novo: laranja de segundo salto ou fraude de abertura | 30 dias (estimativa) | Pontua conta laranja | 1 | 3 |
 
 **Fora do catálogo, mas preservados.** A mesma titularidade (antes R1) virou contexto que todas as regras consultam: isenta dos sinais de golpe, de conta laranja e do horário noturno. A faixa de aviso (antes R18) virou parte da decisão final: placar de golpe entre o corte de aviso e o de recusa aprova com `warn`.
 
@@ -260,7 +329,7 @@ O banco guarda tudo o que chegou, inclusive o que foi recusado, e cada decisão 
 
 | Tabela | O que guarda | Chaves e restrições |
 | --- | --- | --- |
-| `account` | Conta de origem ou destino: ISPB, agência, número, data de abertura, documento do titular e tipo (PF ou PJ) | UNIQUE (ispb, agência, número); ISPB nulo na origem, que o contrato não informa |
+| `account` | Conta de origem ou destino: ISPB, agência, número, data de abertura, documento do titular e tipo (PF ou PJ) | UNIQUE (ispb, agência, número); ISPB nulo na origem, que o contrato não informa, com NULLS NOT DISTINCT para a origem não duplicar |
 | `device` | Aparelho visto pelo motor e quando apareceu pela primeira vez | UNIQUE no `device_id` recebido |
 | `pix_transaction` | O Pix como chegou: `id` externo, valor, data com fuso, contas, aparelho, canal, IP, geolocalização e o payload bruto | UNIQUE no `id` externo; hash do payload para idempotência; CHECK valor > 0; documentos de pagador e recebedor copiados para indexar |
 | `analysis_status` | Enumerador: `approved`, `two_factor_required`, `rejected` | UNIQUE no enumerador |
@@ -269,6 +338,7 @@ O banco guarda tudo o que chegou, inclusive o que foi recusado, e cada decisão 
 | `policy_version` | Versão da política e o modo do ML (`shadow` ou `active`) | Uma única versão ativa, por índice único parcial |
 | `rule_parameter` | Parâmetros de cada sinal numa versão, em JSONB, e se o sinal está ligado | UNIQUE (versão, código do sinal) |
 | `fraud_marker` | Marcações que simulam o DICT e a Res. 587: documento, tipo (própria, conta laranja, conta de golpista), origem e validade | Carregada por seed |
+| analysis\_status\_event | Trilha de status da análise: status anterior, novo status e quando mudou. Um evento ao nascer e um no retorno do 2FA | FK para analysis; status anterior nulo ao nascer |
 
 **Tabelas agregadas do caminho rápido**, atualizadas no mesmo commit de cada Pix:
 
@@ -280,11 +350,11 @@ O banco guarda tudo o que chegou, inclusive o que foi recusado, e cada decisão 
 
 **Índices que as regras exigem:** `pix_transaction` por (documento do pagador, data), (documento do recebedor, data), (aparelho, data) e (conta de origem, data). Cada regra é uma consulta em janela sobre um desses índices.
 
-**Por que a análise não tem trilha de eventos de status.** No Base Service, a trilha registra mudanças de estado. A análise do motor nasce final e nunca muda, porque o contrato não tem retorno do 2FA. A garantia de que ela não foi alterada vem da cadeia de hashes.
+**Trilha de status e colunas da revisão de 15h15.** A análise muda de status uma única vez, pelo retorno do 2FA, e cada mudança vira uma linha em `analysis_status_event`, no padrão de trilha do Base Service. Colunas novas: `step_up_reason`, `step_up_method` e `scam_warning` em `analysis`; contagem de Pix aprovados e `step_up_failed_at` em `device_owner`; `scam_step_up_count` em `payer_payee_pair`.
 
 ## Contrato da API
 
-Duas rotas do desafio, mais as do Base Service. Toda rota, menos `/` e `/health_check`, exige `INTERNAL-TOKEN`. Uma recusa antifraude não é erro HTTP: o Pix foi analisado com sucesso e a resposta é 201 com `status: rejected`.
+As duas rotas do desafio, o retorno do 2FA e as rotas do Base Service. Toda rota, menos `/` e `/health_check`, exige `INTERNAL-TOKEN`. Uma recusa antifraude não é erro HTTP: o Pix foi analisado com sucesso e a resposta é 201 com `status: rejected`.
 
 | Método e rota | Quando | HTTP |
 | --- | --- | --- |
@@ -293,9 +363,14 @@ Duas rotas do desafio, mais as do Base Service. Toda rota, menos `/` e `/health_
 | `POST /pix/transaction` | Mesmo `id` com conteúdo diferente | 409 |
 | `POST /pix/transaction` | JSON fora do schema (campo faltando, tipo errado, campo a mais) | 400 |
 | `POST /pix/transaction` | CPF ou CNPJ com dígito verificador inválido | 422 |
-| `GET /pix/transaction/{id}` | Análise encontrada pelo `id` do Pix | 200 com a mesma resposta do POST |
+| `GET /pix/transaction/{id}` | Análise encontrada pelo `id` do Pix | 200 com a análise no estado atual (o dossiê) |
 | `GET /pix/transaction/{id}` | `id` desconhecido | 404 |
 | Qualquer rota protegida | Sem `INTERNAL-TOKEN` ou token errado | 403 |
+| POST /pix/transaction | IP que não é IPv4 nem IPv6 válido | 422 |
+| PATCH /pix/transaction/{id} | Retorno do 2FA para análise em two\_factor\_required | 200 com a análise atualizada |
+| PATCH /pix/transaction/{id} | Mesmo resultado enviado de novo | 200, sem gravar nada |
+| PATCH /pix/transaction/{id} | Resultado diferente do gravado, ou análise que não estava em two\_factor\_required | 409 |
+| PATCH /pix/transaction/{id} | completed\_at anterior ao transaction\_date; id desconhecido; corpo fora do schema | 422; 404; 400 |
 
 A resposta tem só os três campos do slide. O `metadata` é livre e carrega a explicação:
 
@@ -323,7 +398,7 @@ A resposta tem só os três campos do slide. O `metadata` é livre e carrega a e
 }
 ```
 
-Os valores `recommended_action` possíveis são `none`, `warn`, `step_up` (2FA), `hold_timer` (golpe com suspeita, que em produção viraria a retenção de 30 a 60 minutos do BCB) e `block`.
+Os valores de `recommended_action` são `none`, `warn`, `step_up` e `block` (o `hold_timer` saiu na revisão). Quando o status é `two_factor_required`, o `metadata` traz também `step_up_reason` (`account_takeover`, `possible_scam`, `limit`), `step_up_method` (`face_liveness`, `in_app_confirmation`) e `scam_warning`. Depois de um retorno do 2FA, o GET traz `initial_status`, `two_factor` e `status_history`. Em produção, `observed` e `threshold` ficariam só no dossiê interno, para não mostrar ao fraudador onde fica o corte.
 
 ## Checklist de conformidade
 
@@ -364,6 +439,9 @@ Toda exigência do material do desafio, do Base Service e das aulas tem um lugar
 | Testes de caixa-preta: só HTTP, nenhum import do código da aplicação | Autoestudo da Aula 3 | Todos os testes e o simulador falam por HTTP |
 | TDD: ver o teste falhar antes do código | Autoestudo da Aula 3 | Fases 1 e 2 |
 | Na RFC, banco antes das rotas; decisões e trade-offs com o motivo | Aula 2 | Modelo de dados antes do contrato; "considerado e descartado" no README |
+| Portfólio da Risk Solutions: liveness, Device Scan, Background Check e o motor que junta sinais com dossiê | Slides "Produtos por momento" e "Como o motor decide" | step\_up\_method face\_liveness; fraud\_marker simula o DICT e, em produção, o Background Check; Device Scan como próximo passo; GET devolve o dossiê |
+| Compliance: um dos três pilares da área | Slide "O que é" (fraude, crédito e compliance) | Nada pessoal em log; base legal, retenção e dados no metadata explicados no README (LGPD) |
+| Todos os campos do payload com uso | Slide "Campos da entrada" | channel, ip e abertura da conta pagadora ganharam sinais na Fase 3 |
 
 ## Divisão do time
 
@@ -371,7 +449,7 @@ Quatro frentes que mexem em arquivos diferentes, como o Base Service prevê, par
 
 | Frente | Responsabilidade | Arquivos principais | Fases |
 | --- | --- | --- | --- |
-| A — API e banco | Schema, models, rotas, idempotência, erros, testes de contrato, cadeia de hashes | `database.sql`, `models/`, `schemas/`, `resources/`, `dtos/`, `errors/` | 1, 3 |
+| A — API e banco | Schema, models, rotas, idempotência, erros, testes de contrato, retorno do 2FA e trilha de status, cadeia de hashes | `database.sql`, `models/`, `schemas/`, `resources/`, `dtos/`, `errors/` | 1, 3 |
 | B — Regras de perfil e limite | Regras 2, 3, 4 e 5, o contexto de mesma titularidade e a lógica de decisão com a faixa de aviso | `controllers/rules/`, controller da análise | 2, 3 |
 | C — Regras de rede e contraparte | Regras 1, 6 e 7, trava por pagador e repositório de features | `repositories/pix_feature_repository.py`, `controllers/rules/` | 2, 3 |
 | D — Simulador e ML | Gerador de cenários, treino, integração da Regra 8, avaliação | `scripts/simulator/`, `scripts/ml/`, `src/ml/` | 4 |
@@ -392,6 +470,8 @@ Se o grupo tiver quatro pessoas, a frente de proposta fica com quem não está n
 | Parâmetro estimado questionado na banca | Pergunta "de onde veio esse número?" | Resposta pronta: estimativa declarada, configurável na tabela, e o que calibraria (resultado do 2FA e do MED) |
 | Camada profunda deixa o Pix lento | p95 do caminho profundo acima da meta no simulador | Tempo limite que decide 2FA com o que já tem; revisar índices com EXPLAIN; tirar do caminho profundo a regra mais cara |
 | Fricção alta em clientes bons | Taxa de 2FA ou recusa nos cenários legítimos acima do aceitável para o grupo | Ajustar os parâmetros na tabela de política, sem mudar código, e rodar o simulador de novo |
+| QI Tech considerar o PATCH de retorno do 2FA fora do escopo | Resposta no Slack do hackathon | A rota é isolada: sai sem quebrar o resto, e o README passa a tratar o retorno como próximo passo |
+| Banca questionar os números do simulador | Pergunta "isso prova que o motor funciona?" | Apresentar como teste de regressão e medida de fricção, com 70% dos créditos invisíveis ao motor; sem superlativos |
 
 ## Fontes
 

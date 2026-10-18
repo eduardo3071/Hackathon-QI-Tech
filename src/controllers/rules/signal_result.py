@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
+from typing import Optional
 
 # O que cada sinal pode dizer sobre o Pix.
 #   pass           — conferiu e está dentro do limite
@@ -25,13 +25,7 @@ MULE = "mule"
 
 @dataclass(frozen=True)
 class SignalResult:
-    """O veredito de UM sinal: o que se viu, contra qual limite, e o que deu.
-
-    `escalates_with` diz com quais placares este sinal deixa de pedir 2FA
-    e passa a recusar. É o caso do horário noturno: sozinho, pede 2FA;
-    junto com cara de golpe ou de conta laranja, recusa. A combinação fica
-    escrita no sinal, e quem a aplica é a decisão.
-    """
+    """O veredito de UM sinal: o que se viu, contra qual limite, e o que deu."""
 
     rule_code: str
     signal_code: str
@@ -42,7 +36,6 @@ class SignalResult:
     points: int = 0
     observed: dict = field(default_factory=dict)
     threshold: dict = field(default_factory=dict)
-    escalates_with: Tuple[str, ...] = ()
 
     def is_risk(self) -> bool:
         return self.outcome in (WARN, TWO_FACTOR, REJECT) or self.points > 0

@@ -1,14 +1,17 @@
-# Motor Antifraude Pix — Hackathon QI Tech 2026 (Grupo 47)
+# Motor Antifraude Pix — Hackathon QI Tech 2026 (Grupo 17)
 
 API que recebe um Pix e devolve `approved`, `two_factor_required` ou `rejected`, com motivo explicável.
 Entrega: link do repositório no Slack (grupo da final) até **domingo 18/10, 12h**. Código congela às 10h30.
 
 ## Fontes de verdade (leia antes de mudar o desenho)
 
-- `docs/PLANO.md` — plano completo: fases, catálogo das 8 regras e 17 sinais, modelo de dados, contrato, checklist.
+- **Este arquivo foi revisado em 17/10, 15h15** (e acrescido do sinal `CONTA_RECEBEDORA.suspeita_anterior`, decisão do grupo). Onde ele e o `docs/PLANO.md` divergirem, vale ESTE arquivo
+  (seções "Como o motor decide", "Confiança do aparelho", "Cliente que o motor ainda não conhece", "Retorno do 2FA"
+  e "Sinais novos").
+- `docs/PLANO.md` — plano completo: fases, catálogo das 8 regras e dos sinais, modelo de dados, contrato, checklist.
 - `docs/pesquisa-fraude-pix.md` — a pesquisa com a fonte de cada parâmetro (o "por quê" do README sai daqui).
 - `docs/como-o-projeto-e-organizado.md` — padrões do Base Service. Eles valem mais que qualquer preferência sua.
-- Se o código e o `docs/PLANO.md` divergirem, pare e pergunte. Não invente regra, parâmetro ou número.
+- Se o código e estes documentos divergirem, pare e pergunte. Não invente regra, parâmetro ou número.
 
 ## Padrões do Base Service (obrigatórios: são critério de avaliação)
 
@@ -23,6 +26,7 @@ Entrega: link do repositório no Slack (grupo da final) até **domingo 18/10, 12
 - Entidade nova que depende de outra entra DEPOIS dela em `src/models/__init__.py`.
 - `database/database.sql` só roda quando o banco nasce: mudou o SQL → `docker compose down -v && docker compose up`.
 - Dependência nova → versão exata (`==`) no `requirements.txt` e `docker compose build api`.
+- Nunca logue o payload, documento, IP ou geolocalização. O middleware de log já não loga o corpo; não desfaça isso.
 
 ## Testes
 
@@ -31,15 +35,40 @@ Entrega: link do repositório no Slack (grupo da final) até **domingo 18/10, 12
 - Um cenário por sinal: o Pix que dispara e o que fica logo abaixo do limite.
 - Datas fixas no payload (`transaction_date`), nunca o relógio da máquina.
 - Testes de concorrência: 10 Pix paralelos do mesmo pagador; 6 pagadores diferentes ao mesmo tempo para a mesma conta PF.
+- **Testes de cenário de ponta a ponta** (`tests/integration/scenarios/`), com o status esperado de cada um:
+
+  | Cenário | Status esperado |
+  |---|---|
+  | Exemplo do slide: R$ 1.500 às 22h15, conta pagadora de 2025-03-02, destino aberto há 7 dias, pagador sem histórico no motor | `two_factor_required` com aviso de golpe |
+  | Primeiro Pix de um cliente desconhecido pelo motor, conta pagadora antiga, R$ 300 às 14h para conta antiga (aparelho nunca visto) | `two_factor_required` com `step_up_reason: device_registration` e `face_liveness` (Res. BCB 403 vale para todos) |
+  | Mesmo cliente, com o cadastro do aparelho aprovado (retorno `passed`), R$ 800 dez minutos depois | `approved` |
+  | Primeiro Pix de um cliente desconhecido pelo motor, R$ 150 | `approved` (até R$ 200 por Pix) |
+  | Mesmo cliente desconhecido, R$ 1.500 às 14h para conta antiga | `two_factor_required` |
+  | Celular roubado: aparelho novo faz Pix de R$ 10 (aprovado) e, 3 minutos depois, R$ 5.000 para destino novo | o segundo é `two_factor_required` com `face_liveness` |
+  | Carro usado: cliente com histórico paga R$ 35.000 de dia a conta aberta há 20 dias (primeiro crédito) | `two_factor_required` com aviso de golpe (não `rejected`) |
+  | Conta laranja: conta PF aberta há 10 dias recebe Pix de R$ 300 de 5 pagadores distintos em 1 h | o 4º (R$ 1.200 de 4 pagadores) é `rejected` (conta nova + fan-in; antes, o 5º) |
+  | Reenvio do mesmo `id` com o CPF mascarado (`123.456.789-09` em vez de `12345678909`) | 200 com a análise gravada (não 409) |
+  | Mesmo pagador reenvia o mesmo valor para o mesmo destino com `id` novo, 3 vezes em 5 min, sem aprovação | conta como 1 tentativa na velocidade |
+  | 10 Pix aprovados de R$ 990 ao mesmo destino em 5 min | cada um conta; a partir do 3º, `two_factor_required` (`RITMO.fracionamento`) |
+  | Celular novo pede 2FA (`face_liveness`), retorno `passed`, e 10 min depois manda R$ 800 do mesmo aparelho | o segundo não pede 2FA por aparelho |
+  | Pix com 2FA por `possible_scam`, retorno `passed`, e no dia seguinte outro Pix fora do perfil para o mesmo destino | destino NÃO é tratado como recorrente, e o Pix é `two_factor_required` com `possible_scam` e `scam_warning: true` (`CONTA_RECEBEDORA.suspeita_anterior`) |
+  | Mesmo caso, mas o Pix do dia seguinte com valor dentro do perfil | `approved` (o sinal passa) |
+  | Cliente com mediana de R$ 200 manda R$ 3.000 (15×) para destino novo, do aparelho de sempre | `two_factor_required` com `possible_scam` e aviso de golpe |
+  | Mesmo cliente, R$ 1.500 (7,5×) para destino novo | `approved` com `warn` |
+  | Celular novo pede 2FA (`face_liveness`), retorno `failed`, e no dia seguinte faz 2 Pix pequenos aprovados | aparelho continua não confiável |
+  | `GET` depois de um retorno `passed` | `status: approved`, com `initial_status: two_factor_required` e o histórico |
 
 ## Contrato
 
 - `POST /pix/transaction` → 201 `{key, status, metadata}` (só esses três campos).
   - mesmo `id` + mesmo conteúdo → 200 com a análise já gravada, sem reavaliar e sem contar de novo;
-  - mesmo `id` + conteúdo diferente → 409 (compare hash do payload);
-  - fora do schema → 400; CPF/CNPJ com dígito inválido → 422 (use `utils/document_number.py`);
+  - o hash de idempotência é calculado sobre o payload **normalizado** (documentos só com dígitos), não sobre o bruto;
+  - mesmo `id` + conteúdo diferente → 409;
+  - fora do schema → 400; CPF/CNPJ com dígito inválido → 422; IP que não é IPv4/IPv6 válido → 422;
   - recusa antifraude NÃO é erro HTTP: é 201 com `status: rejected`.
-- `GET /pix/transaction/{id}` → 200 com a mesma resposta do POST; desconhecido → 404.
+- `GET /pix/transaction/{id}` → 200 com a análise gravada no estado ATUAL (é o "dossiê"); desconhecido → 404.
+  Se houve retorno do 2FA, o `status` é o resultado final e o `metadata` traz o status inicial e o histórico.
+- `PATCH /pix/transaction/{id}` → retorno do 2FA (seção "Retorno do 2FA").
 - Toda rota, menos `/` e `/health_check`, exige `INTERNAL-TOKEN` (403 sem ele).
 - `geolocation` é opcional. Sinal sem dado → `not_evaluated`, nunca aprovar em silêncio.
 
@@ -49,45 +78,303 @@ Entrega: link do repositório no Slack (grupo da final) até **domingo 18/10, 12
 - `_key` (UUID) sai na resposta; `id` interno nunca sai.
 - Horários convertidos para `America/Sao_Paulo` antes de qualquer regra de horário.
 - Documentos normalizados só com dígitos. PF = 11 dígitos, PJ = 14.
-- Parâmetros vêm da tabela `rule_parameter` (política versionada), nunca de constante no código.
+- Parâmetros (inclusive pontos e cortes) vêm da tabela `rule_parameter`, nunca de constante no código.
 
-## Como o motor decide
+## Como o motor decide (REVISADO)
 
-1. **Trava** com `pg_advisory_xact_lock` sobre: documento do pagador, documento do recebedor (só se PF) e `device_id`. Sempre em ordem crescente de chave, para não haver impasse.
-2. **Camada 0** (sempre): `MARCACAO.lista` (recusa sozinho), `LIMITE.aparelho_nao_cadastrado` (2FA sozinho), `LIMITE.noturno`, `RITMO.velocidade`, contexto de mesma titularidade.
-3. **Camada 1** (sempre, leitura das tabelas agregadas): `PERFIL.valor`, `LIMITE.sem_geolocalizacao`, `QUEM_OPERA.viagem_impossivel`, `CONTA_RECEBEDORA.conta_nova`, `CONTA_RECEBEDORA.fan_in`.
-4. **Gatilho**: sem sinal de risco → `approved` pelo caminho rápido (`metadata.path = "fast"`).
-5. **Camada 2** (só com sinal; tempo limite 300 ms; estourou → 2FA): os demais sinais e `ANOMALIA.ml`.
-6. **Decisão** pelos placares `ato` (conta invadida), `app` (golpe), `mule` (conta laranja):
-   - `mule` ou `app` acima do corte → `rejected`;
-   - `ato` acima do corte → `two_factor_required`;
-   - `app` na faixa de aviso → `approved` com `recommended_action: "warn"`;
-   - precedência: `rejected` > `two_factor_required` > `approved`.
-7. **Grava** transação, análise, um resultado por sinal, features usadas; atualiza `payer_profile`, `payer_payee_pair`, `device_owner`; hash encadeado com a análise anterior **do mesmo pagador**; commit.
+O slide da QI Tech define: **reprovar = "bloqueia quando o risco é claro"**; **2FA = "fricção só onde há dúvida"**.
+A decisão segue isso à risca:
 
-Regras em `src/controllers/rules/`: uma classe por regra (8), interface comum
-`evaluate(features, params, camada) -> list[SignalResult]`. Cada sinal devolve código, resultado
-(`pass`/`warn`/`two_factor`/`reject`/`not_evaluated`/`not_needed`), pontos, valor observado, limite e mensagem em português.
-Consultas de janela ficam em `src/repositories/pix_feature_repository.py`.
+1. **Trava** com `pg_advisory_xact_lock` sobre: `id` do Pix, documento do pagador, documento do recebedor (só se PF)
+   e `device_id`, sempre em ordem crescente de chave.
+2. **Camadas 0 e 1** sempre; **gatilho**; **camada 2** só com sinal de risco (tempo limite 300 ms).
+3. **`rejected` só com evidência dura.** São as únicas formas de recusar:
+   - `MARCACAO.lista` (Res. BCB 587/2026);
+   - `RITMO.velocidade` no corte de recusa (conta sendo esvaziada);
+   - placar `mule` acima do corte **E pelo menos dois sinais de conta laranja diferentes** disparados
+     (ex.: conta nova + fan-in; conta nova + repasse rápido);
+   - `RASTRO.proximidade_marcada` a 1 salto (Fase 3).
+   - `LIMITE.noturno_fora_de_casa` (18/10): Pix noturno PF→PF para destino novo, a mais de 5 km de todos os locais
+     habituais, com a soma noturna acima de R$ 1.000 — o teto da Res. BCB 142 sem exceção no contexto de coação.
+   Um sinal de conta laranja sozinho, por mais pontos que tenha, **não recusa**.
+   O repasse rápido (`RASTRO.repasse_rapido`) é sinal de conta laranja e pontua `mule`; ele NÃO recusa sozinho.
+   Sozinho leva a 2FA (`possible_scam`). Junto com outro sinal de laranja diferente, recusa pela regra dos dois sinais.
+4. **`two_factor_required`** quando há dúvida. O `metadata` diz POR QUE e COMO:
+   - `step_up_reason: "account_takeover"` → `step_up_method: "face_liveness"`
+     (aparelho não confiável, viagem impossível, fora da zona habitual, velocidade). SMS não serve: no SIM swap o fraudador
+     recebe o SMS. Biometria facial com liveness é produto da própria QI Tech.
+   - `step_up_reason: "possible_scam"` → `step_up_method: "in_app_confirmation"` + `scam_warning: true`
+     (placar `app` acima do corte, ou um único sinal forte de conta laranja). O 2FA sozinho não protege contra golpe;
+     a fricção útil é a confirmação com aviso de golpe na tela.
+   - `step_up_reason: "limit"` → `step_up_method: "in_app_confirmation"` (limite noturno, sem outro sinal).
+   - `step_up_reason: "device_registration"` → `step_up_method: "face_liveness"` (cadastro do aparelho do cliente que o
+     motor ainda não conhece; seção "Cliente que o motor ainda não conhece").
+   - Se houver motivo de invasão e de golpe ao mesmo tempo, `face_liveness` + `scam_warning: true`.
+   - **O método depende do contexto (bateria de realidade, item 5):** a confirmação no app não protege quando o
+     próprio celular está com o ladrão. Qualquer 2FA (golpe ou limite) vira `face_liveness` quando o aparelho não é
+     confiável, quando houve biometria reprovada nas últimas 24 h (em qualquer aparelho do pagador) ou quando o Pix
+     está a mais de 5 km de todos os últimos locais aprovados do pagador (`street_mode_km: 5` em `DECISAO.placares`;
+     é o que o Modo Rua do Nubank faz). `in_app_confirmation` só fica para aparelho confiável, perto do costume.
+     Biometria reprovada, por qualquer motivo do 2FA, bloqueia a confiança do aparelho por 24 h; biometria aprovada
+     o cadastra (Res. BCB 403).
+5. **`approved` com `recommended_action: "warn"`** quando o placar `app` está na faixa de aviso.
+6. **`hold_timer` não existe mais** (código, `recommended_action` e CHECK do banco). Valores de `recommended_action`:
+   `none`, `warn`, `step_up`, `block`.
+7. Precedência: `rejected` > `two_factor_required` > `approved`. Tempo limite da camada 2 estourado → 2FA com
+   `step_up_reason` do sinal que levou à camada 2.
+8. **Grava** transação, análise, um resultado por sinal, features; atualiza as agregadas; commit.
+
+## Confiança do aparelho (REVISADO — fecha a brecha do Pix pequeno)
+
+- Um aparelho só é **confiável** para um pagador quando tem **pelo menos 2 Pix aprovados** desse pagador
+  **e o primeiro deles foi há pelo menos 24 h** (em relação ao `transaction_date` do Pix avaliado),
+  **ou** quando passou num 2FA com `face_liveness` (seção "Retorno do 2FA").
+- "Pix aprovado" inclui o Pix que pediu 2FA e teve retorno `passed`.
+- Enquanto não é confiável: limite de R$ 200 por Pix e R$ 1.000 por dia **somando todos os Pix aprovados de
+  aparelhos não confiáveis** do pagador no dia de Brasília. Acima → `two_factor_required` / `face_liveness`.
+- Aparelho não confiável também conta como "aparelho novo" para `PERFIL.valor` (pontua `ato`, não `app`).
+- Motivo: hoje um Pix de R$ 10 aprovado torna o aparelho "conhecido", e o próximo Pix de R$ 5.000 do ladrão sai
+  `approved` com `warn`. Isso não pode acontecer.
+
+## Retorno do 2FA (NOVO — o motor passa a aprender com o 2FA confirmado)
+
+Por quê: o slide define só o POST e o GET. Sem retorno, um Pix que pediu 2FA fica gravado como `two_factor_required`
+para sempre, mesmo que o cliente tenha confirmado e o Pix tenha saído, e o motor nunca aprende com ele (aparelho, perfil,
+destino recorrente). A rota fica ISOLADA (método próprio no controller, arquivo de teste próprio) para poder ser removida
+sem quebrar nada se a QI Tech disser que está fora do escopo.
+
+**Contrato:** `PATCH /pix/transaction/{id}` com `INTERNAL-TOKEN` e corpo validado por `src/schemas/patch_pix_transaction.json`:
+
+```json
+{ "two_factor_result": "passed", "completed_at": "2026-10-17T22:16:10-03:00" }
+```
+
+- `two_factor_result`: `passed` ou `failed`. `completed_at`: data e hora com fuso. Campo a mais → 400.
+- Análise em `two_factor_required` → aplica o resultado e devolve 200 com a análise atualizada (mesmo DTO do GET).
+- Mesmo resultado enviado de novo → 200, sem gravar nada de novo (idempotente).
+- Resultado diferente do já gravado, ou análise que não estava em `two_factor_required` → 409.
+- `completed_at` anterior ao `transaction_date` do Pix → 422. `id` desconhecido → 404.
+- Usa a mesma trava do POST (`id` do Pix, documento do pagador, recebedor PF e aparelho), porque atualiza as agregadas.
+
+**Trilha de status, no padrão do Base Service:** tabela `analysis_status_event` (`analysis_id`, `from_status_id` que
+pode ser nulo, `to_status_id`, `event_datetime`, `created_at`). Toda análise grava um evento ao nascer
+(`null → status inicial`). O retorno do 2FA grava `two_factor_required → approved` (`passed`) ou
+`two_factor_required → rejected` (`failed`) e atualiza o `status_id` da análise. O `metadata` passa a trazer
+`initial_status`, `two_factor: {result, completed_at}` e `status_history`.
+
+**O que o motor aprende com o resultado:**
+- `passed` com `step_up_method: face_liveness` → é o cadastro do aparelho previsto pelo BCB: o aparelho fica
+  **confiável na hora** para este pagador. O Pix entra no perfil, na soma noturna e no par pagador-recebedor.
+- `passed` com `in_app_confirmation` por `limit` → o Pix entra no perfil, na soma noturna e no par, mas não
+  cadastra o aparelho sozinho.
+- `passed` com aviso de golpe (`scam_warning`) → o Pix **não entra no perfil** (nem na mediana, nem no P95) e **não
+  torna o destino recorrente**; conta só para a soma noturna e para os tetos diários (que olham os Pix aprovados).
+  (Revisado após a bateria de realidade, item 1: antes ele entrava no perfil, e a vítima da falsa central, depois de
+  confirmar R$ 4.800 e R$ 4.500, via o de R$ 3.900 sair sem sinal — o golpe "educava" o perfil.)
+  A vítima de golpe confirma o Pix e costuma pagar o mesmo golpista de novo (falso investimento).
+  Grave isso no par (`scam_step_up_count`), e o atenuante de destino recorrente do `PERFIL.valor` não vale para ele.
+  A suspeita também não some com o 2FA confirmado: veja `CONTA_RECEBEDORA.suspeita_anterior` abaixo.
+- `failed` → status `rejected`. Se o motivo era `account_takeover`, o aparelho fica **bloqueado para confiança por
+  24 h** para este pagador (`step_up_failed_at` em `device_owner`): nenhum Pix aprovado nesse período o torna confiável.
+- O retorno não reavalia as regras nem conta como nova tentativa na velocidade.
+
+**Golpe repetido — `CONTA_RECEBEDORA.suspeita_anterior` (Regra 6, camada 1; decisão do grupo em 17/10):**
+- Se este pagador já teve **2FA por `possible_scam` para esta conta destino nos últimos 90 dias** (qualquer retorno,
+  ou nenhum) **e** o valor atual está fora do perfil (`PERFIL.valor`), o sinal pontua `app` no valor do corte de golpe
+  (60) → `two_factor_required` com `possible_scam` e `scam_warning: true`. Dentro do perfil, passa.
+- Janela e pontos em `rule_parameter` (`window_days: 90`, `points: 60`). Mesma titularidade → `not_needed`.
+- **Não pune a conta do mês (bateria de realidade, item 3):** a suspeita não vale quando o novo Pix tem valor
+  parecido (até 25% de diferença) com um pagamento já confirmado a este destino e foi feito pelo menos 20 dias depois
+  dele (`monthly_amount_tolerance_percent: 25`, `monthly_min_days: 20`). Nesse padrão o destino também vale como
+  recorrente no `PERFIL.valor`. Continua valendo para valor crescente e para intervalo curto. Antes, isso gerava 46 dos
+  2FA em clientes legítimos da bateria (aluguel do mês 2).
+- Por quê: sem ele, a vítima que confirmou o golpe e paga o mesmo golpista no dia seguinte saía `approved` com `warn`
+  (o crédito confirmado tira a conta do "primeiro crédito" da `conta_nova`, e o placar `app` ficava na faixa de aviso).
+
+## Cliente que o motor ainda não conhece — a Res. BCB 403 vale para todos (REVISADO, item 9 da bateria de realidade)
+
+Decisão do grupo (18/10): **não existe mais "período de aprendizado"**. Removido o alívio do cliente que o motor ainda
+não conhece (que levava o limite por Pix do aparelho não confiável de R$ 200 a R$ 1.000 para conta pagadora de 180 dias
+ou mais; o parâmetro `new_client_min_account_age_days` saiu do seed).
+
+- Aparelho não confiável fica com **R$ 200 por Pix e R$ 1.000 por dia para todo pagador**, inclusive o que o motor nunca
+  viu, como a Res. BCB 403/2024 manda para aparelho não cadastrado. O "Cadastro de dispositivos Pix" é produto da
+  própria QI Tech.
+- **Cadastro do aparelho:** quando o único motivo do 2FA é o limite do aparelho não cadastrado de um cliente que o motor
+  ainda não conhece (nenhum aparelho do pagador é confiável), sem nenhum outro sinal de risco, a decisão é
+  `two_factor_required` com `step_up_reason: "device_registration"` e `step_up_method: "face_liveness"` (sem aviso de
+  golpe). É o cadastro que a norma prevê, feito uma vez só: com o retorno `passed`, o aparelho fica confiável. Não se usa
+  `in_app_confirmation`, porque a confirmação no próprio aparelho novo não prova nada (mesmo raciocínio do item 5).
+- Com qualquer outro sinal de risco junto, ou quando o pagador já tem aparelho confiável (aparelho novo = celular
+  roubado), o 2FA segue como `account_takeover`.
+- O limite de partida do `PERFIL.valor` para quem não tem histórico (R$ 1.000) continua igual.
+- Explicar no README: o primeiro Pix de cada cliente acima de R$ 200 pede o cadastro do aparelho de propósito; em
+  produção o motor nasce com a carga do histórico (aparelhos já cadastrados), e isto some.
+
+## Sinais novos (Fase 3 — usam campos do payload que hoje nenhuma regra lê)
+
+- `QUEM_OPERA.canal_incomum` (Regra 5): canal (`source.channel`) que o pagador nunca usou num Pix aprovado,
+  com valor acima do limite de partida → pontua `ato`.
+- `QUEM_OPERA.ip_compartilhado` (Regra 5): 3 ou mais CPFs pagadores distintos no mesmo IP em 1 h. **Só pontua junto com
+  aparelho não confiável** (redes móveis põem muita gente no mesmo IP). Nunca decide sozinho.
+- `RASTRO.conta_pagadora_recente` (Regra 7): conta pagadora aberta há menos de 30 dias mandando valor acima do limite
+  de partida para destino novo → pontua `mule` (laranja de segundo salto / fraude de abertura).
+- Todos com parâmetros em `rule_parameter`, um teste que dispara e um logo abaixo.
+
+## Perfil graduado (REVISADO — `PERFIL.valor` em dois degraus)
+
+- 1º degrau (como antes): acima do P95 e de 5× a mediana, para destino novo e aparelho confiável → +40 `app`
+  (faixa de aviso: `approved` com `warn`).
+- 2º degrau: **10× a mediana ou mais e valor acima de R$ 1.000**, para destino novo e aparelho confiável → pontua
+  `app` no valor do corte de golpe (60) → `two_factor_required` com `possible_scam` e `scam_warning: true`.
+- Fator, piso e pontos em `rule_parameter` (`high_median_multiplier: 10`, `high_min_amount: 100000`,
+  `high_app_points: 60`). Sem histórico suficiente (menos de 5 Pix) não há mediana, e vale o limite de partida.
+- **Teto sem histórico (18/10, avaliador externo):** sem histórico suficiente, valor de **R$ 10.000 ou mais**
+  (`high_fallback_amount: 1000000`, estimativa) vale como o 2º degrau → 2FA com aviso de golpe, para destino novo de
+  aparelho confiável. Antes, um aparelho confiável com dois Pix de R$ 100 mandava R$ 200.000 só com aviso.
+  Aparelho não confiável e mesma titularidade não mudam.
+
+## Destino recorrente (REVISADO após a bateria de realidade, item 2)
+
+- O atenuante "destino já pago" do `PERFIL.valor` (e o gatilho da camada 2) só vale com **2 ou mais Pix aprovados em
+  dias diferentes** (dia de Brasília) para aquele destino **e** valor atual de **no máximo 1,5x o maior valor já pago a
+  ele**. Acima disso é escalada, e o `PERFIL.valor` avalia normalmente. Quem já confirmou um Pix para o destino sob
+  aviso de golpe nunca o torna recorrente.
+- Parâmetros em `rule_parameter` (`PERFIL.valor`: `recurring_min_days: 2`, `recurring_max_growth_percent: 150`);
+  o par guarda `approved_days`, `last_approved_day` e `max_approved_amount`.
+- Por quê: com um único Pix aprovado já bastando, o falso investimento (R$ 500, 1.000, 3.000, 8.000 ao mesmo destino
+  em 8 dias) saía `approved` sem aviso do 2º Pix em diante.
+
+## Perfil para destino novo (bateria de realidade, item 4)
+
+- Quando o destino do Pix é novo (o pagador nunca pagou um Pix aprovado a ele), o `PERFIL.valor` compara o valor com
+  os valores que o pagador já mandou para **destinos novos** (marcados `to_new_payee` no perfil), a partir de **5
+  casos** (`new_payee_min_history: 5`); com menos, usa o perfil geral. É o mesmo sinal, com base de comparação melhor.
+- Por quê: o P95 do perfil geral misturava o aluguel (recorrente e alto) com o resto, e o falso parente
+  (R$ 1.890 para conta de 15 dias) passava por "dentro do perfil". O `observed.basis` do sinal diz qual base valeu
+  (`general` ou `new_payees`).
+
+## Rajada para destinos novos — `RITMO.destinos_novos` (bateria de realidade, item 6)
+
+- Regra 3, camada 0: **3 ou mais Pix para destinos novos distintos em 10 minutos, somando R$ 2.000 ou mais** pedem 2FA
+  com `face_liveness` (motivo `account_takeover`, placar `ato`). "Destino novo" é o que o pagador viu pela primeira vez
+  dentro da janela; vários Pix ao mesmo destino contam um destino só.
+- Parâmetros em `rule_parameter` (`window_minutes: 10`, `min_count: 3`, `min_amount: 200000`).
+- Por quê: na "mão fantasma" (acesso remoto, 7 Pix em 6 minutos para destinos novos, do aparelho de sempre), 4 Pix e
+  R$ 5.200 saíam antes de a velocidade (5º Pix) pedir 2FA.
+
+## Fan-in com valor mínimo e limite menor para conta nova (bateria de realidade, item 7)
+
+- `CONTA_RECEBEDORA.fan_in` só pontua se a **soma recebida na janela (1 h) for de R$ 1.000 ou mais** (`min_window_amount`),
+  e, para recebedor com **conta de menos de 30 dias**, o mínimo de pagadores distintos cai de 5 para **3**
+  (`new_account_min_distinct_payers`, `new_account_max_age_days`).
+- Por quê: a rifa da formatura (8 amigos mandando R$ 20 a uma conta de 12 dias) era RECUSADA (falso positivo), enquanto a
+  falsa venda e a laranja só travavam na 5ª vítima.
+
+## Loja PJ antiga não é golpe (bateria de realidade, item 8)
+
+- Para recebedor **PJ com conta de 1 ano ou mais** (`company_min_account_age_days: 365` em `PERFIL.valor`), o
+  `PERFIL.valor` pontua no máximo a faixa de aviso (`app_points`, 40): `approved` com `warn`, nunca 2FA sozinho.
+- Por quê: uma TV de R$ 3.500 na Black Friday, numa loja com CNPJ de 12 anos, pedia 2FA com aviso de golpe.
+
+## Sem geolocalização: a empresa no aparelho e no canal de sempre (decisão de 18/10)
+
+- `LIMITE.sem_geolocalizacao` sai `not_needed` quando o pagador é PJ (CNPJ), o aparelho é confiável para ele e o
+  canal já foi usado num Pix aprovado desse pagador. A IN BCB 669 permite limite menor sem geolocalização, não obriga.
+- Por quê: no simulador, 100% dos Pix de salário pediam 2FA (a empresa paga pelo internet banking do computador).
+- PF sem geolocalização, e PJ em aparelho novo, continuam com o limite reduzido. `RITMO.destinos_novos` não muda: a
+  primeira folha para funcionários novos continua pedindo biometria uma vez, de propósito.
+
+## Local habitual só depois de 24 h (decisão de 18/10)
+
+- Para o Modo Rua do método do 2FA (`street_mode_km`) e para o `LIMITE.noturno_fora_de_casa`, só contam como locais
+  habituais os de Pix aprovados há pelo menos 24 h (`habitual_location_min_hours: 24` em `DECISAO.placares`).
+  O `QUEM_OPERA.fora_da_zona` não muda.
+- Por quê: na bateria (F6), o Pix que o ladrão aprovou na rua virava "local habitual" na hora, e o 2º Pix caía na
+  confirmação no app, que o ladrão com o celular desbloqueado confirma.
+
+## Falso parente — `CONTA_RECEBEDORA.primeiro_pix_alto` (Regra 6, camada 1; decisão de 18/10)
+
+- Recebedor PF com conta de menos de 30 dias, primeiro Pix deste pagador para essa conta e valor de R$ 1.000 ou mais
+  → `app` +60 → `two_factor_required` com `possible_scam` e `scam_warning: true`. Não depende do histórico do pagador.
+- "Primeiro Pix" = nenhum Pix aprovado **sem aviso de golpe** para essa conta (`pair_approved_count == 0`): o golpe
+  confirmado não cria relação com o destino, então o 2º Pix ao mesmo golpista, no mesmo dia, também pede 2FA. (A
+  `suspeita_anterior` não pega esse 2º Pix quando o pagador já manda valores altos a destinos novos, porque ela exige
+  valor fora do perfil.)
+- Mesma titularidade e recebedor PJ → `not_needed`. É sinal de golpe, não de laranja: sozinho nunca recusa.
+- Parâmetros em `rule_parameter` (`max_account_age_days: 30`, `min_amount: 100000`, `points: 60`), estimativas.
+
+## Falso investimento — `PERFIL.escalada` (Regra 4, camada 1; decisão de 18/10)
+
+- Nos últimos 7 dias, 2 ou mais Pix aprovados para este destino (contam os confirmados sob aviso de golpe), valores
+  estritamente crescentes, o atual maior que o último e pelo menos 3× o primeiro → `app` 60 (2FA com aviso) com o
+  valor atual de R$ 300 ou mais; abaixo disso, `app` 40 (faixa de aviso).
+- Mesma titularidade e recebedor PJ com conta de 1 ano ou mais → `not_needed` (uma corretora de verdade é PJ antiga).
+- Olha a sequência, não o perfil: no simulador, cada Pix do falso investimento parecia normal sozinho.
+- Parâmetros em `rule_parameter` (estimativas).
+
+## Coação — `LIMITE.noturno_fora_de_casa` (Regra 2, camada 0; decisão de 18/10) → `rejected`
+
+- Dispara com tudo junto: noturno (20h–6h, Brasília); PF→PF entre pessoas distintas; destino novo (não recorrente);
+  a mais de 5 km de todos os locais habituais (Pix aprovados há pelo menos 24 h); soma noturna com o Pix atual acima
+  de R$ 1.000. Resposta: `rejected`, `typology: coercion`, `recommended_action: block`.
+- Por quê: é o teto da Res. BCB 142 sem exceção no contexto de coação (sequestro relâmpago, F8 da bateria): a vítima
+  coagida passa na própria biometria, e a norma diz que aumento de limite só vale 24 h depois do pedido.
+- Sem geolocalização, ou sem nenhum local habitual, `not_evaluated`. PF→PJ e mesma titularidade → `not_needed`.
+- Efeito no F6 (celular roubado na rua, Pix para destinos novos): o 2º Pix passa a ser recusado por este sinal, e
+  não mais confirmado no app. Para destino recorrente, o 2º Pix pede biometria (local habitual só depois de 24 h).
+- Continua aberto: coação perto de casa e para destino recorrente.
+
+## Velocidade
+
+- Reenvio com `id` novo, mesmo pagador, mesmo recebedor e mesmo valor dentro da janela conta como **uma** tentativa
+  **só quando as anteriores não foram aprovadas** (2FA sem retorno, recusada ou reprovada no 2FA). Pix aprovado conta
+  sempre como tentativa própria e soma no valor da janela (vale também para o `RITMO.fracionamento`). Sem isso, dez Pix
+  aprovados de R$ 990 ao mesmo destino em 5 min saíam todos (decisão de 18/10, auditoria).
+  Sem isso, o cliente que refaz o Pix depois do 2FA é empurrado para a recusa.
 
 ## Higiene do histórico
 
 - Perfil do pagador só com Pix **aprovados** (90 dias). Tentativas recusadas contam na velocidade.
 - Mesma titularidade fica fora dos sinais de golpe, de conta laranja e do horário noturno.
 - `LIMITE.noturno` é sinal, não teto: o motor não sabe o limite configurado do cliente.
-  Passa se o valor está dentro do maior Pix noturno já aprovado do pagador; senão 2FA; com sinal de golpe/laranja, recusa.
 - `CONTA_RECEBEDORA.fan_in` só vale para recebedor PF.
 
 ## Ordem de trabalho
 
-Siga as fases do `docs/PLANO.md`. Não comece uma fase sem o portão da anterior verde.
-- Fase 1: banco, schema, POST/GET gravando e consultando, idempotência, erros, testes de contrato.
-- Fase 2 (MVP, ponto de segurança): Regras 1 e 4 completas; Regra 2 (aparelho, noturno); Regra 3 (velocidade); Regra 6 (conta nova, fan-in); camadas; trava; metadata.
-- Fase 3: sinais restantes, faixa de aviso, política versionada, cadeia de hashes, `latency_ms`.
-- Fase 4: simulador por HTTP (`scripts/simulator/`, cenário no prefixo do `id`) e Isolation Forest (`scripts/ml/`, modo sombra primeiro).
+- Fases 1 e 2: feitas (67 testes verdes em 17/10 15h). Antes de seguir, aplicar as revisões deste arquivo.
+- Fases 3 e 4: feitas. **Bateria de realidade (18/10, madrugada):** itens 1 a 10 feitos (215 testes verdes); os
+  números estão em `docs/bateria-realidade.md` e `docs/resultados-simulador.md`. Limitações que a bateria deixou:
+  o falso parente (F2) ainda passa para o cliente simulado cujo P95 de destinos novos já é alto; o celular roubado
+  que faz um Pix aprovado longe de casa "ensina" a zona habitual (o 2º Pix já não está longe); o teste de contas
+  (centavos) só o ML pegaria.
+- Fase 3: Regra 5 (aparelho compartilhado, viagem impossível, zona habitual, canal incomum, IP compartilhado),
+  Regra 7 (repasse rápido, proximidade de conta marcada, conta pagadora recente), sinais restantes das Regras 2, 3 e 6,
+  `latency_ms`. Cadeia de hashes por pagador fica por ÚLTIMO e é a primeira a cortar; se entrar, o README a descreve
+  como "evidência de adulteração simples", sem comparar com blockchain.
+- Fase 4: simulador por HTTP (`scripts/simulator/`, cenário no prefixo do `id`). **70% dos créditos que as contas
+  recebem vêm de fora** (de pagadores que o motor nunca vê), porque o motor só enxerga Pix de clientes da QI Tech.
+  Isolation Forest (`scripts/ml/`), treinado DENTRO do container, modo sombra. Os números do simulador são teste de
+  regressão e medida de fricção, não eficácia.
 
 Se o tempo apertar, corte sinais dentro das regras, nunca a matriz de erros reais nem o caminho rápido.
 
+## README (Fase 5) — itens obrigatórios além do modelo da banca
+
+- Exemplo resolvido com o payload do slide: cada sinal, pontos, placar e a decisão final (igual ao teste de cenário).
+- Coluna "visibilidade" por sinal: o motor só vê Pix de clientes da QI Tech (repasse rápido, fan-in e destino que
+  reaparece dependem disso).
+- "O que acontece depois do 2FA": o slide define só o POST e o GET; acrescentamos o `PATCH` de retorno porque, sem
+  ele, o motor não aprende com o 2FA confirmado. Explicar a trilha de status, o que cada resultado ensina ao motor
+  (inclusive por que o 2FA por golpe não torna o destino recorrente) e que a rota é isolada e removível. Com exemplo
+  de `curl`.
+- Portfólio QI Tech: `face_liveness` no step-up; Background Check e Device Scan como fontes futuras de sinais;
+  a tabela `fraud_marker` simula o DICT.
+- LGPD: base legal de prevenção à fraude, nada pessoal em log, prazo de retenção, e que `observed`/`threshold` no
+  `metadata` seriam internos em produção (não se mostra ao fraudador onde fica o corte).
+- Sem superlativos. Toda norma citada conferida no texto oficial.
+
 ## Fora do escopo (não faça)
 
-Front-end, onboarding/cadastro de contas, endpoints de configuração ou qualquer outra API, connectors externos, blockchain.
+Front-end, onboarding/cadastro de contas, endpoints de configuração ou qualquer outra API além do POST, do GET e do
+PATCH de retorno do 2FA, connectors externos, blockchain.

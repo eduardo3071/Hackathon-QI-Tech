@@ -1,22 +1,39 @@
 from dataclasses import dataclass
 from typing import List, Optional
 
+from controllers.rules.limite_rule import UNREGISTERED_DEVICE
 from controllers.rules.signal_result import APP, ATO, MULE, REJECT, TWO_FACTOR, SignalResult
 from models import AnalysisStatus
 
-# As tipologias que a decisão pode apontar, e a ação recomendada de cada
-# desfecho. `hold_timer` é a recusa por suspeita de golpe: em produção,
-# viraria a retenção de 30/60 minutos do BCB em vez de uma recusa seca.
+# As tipologias que a decisão pode apontar.
 FRAUD_MARKER = "fraud_marker"
 ACCOUNT_TAKEOVER = "account_takeover"
 APP_SCAM = "app_scam"
 MULE_ACCOUNT = "mule_account"
+# Pix noturno longe de casa para destino novo, acima do teto da Res. BCB
+# 142: o contexto do sequestro relâmpago.
+COERCION = "coercion"
 
+# A ação recomendada de cada desfecho.
 NONE = "none"
 WARN = "warn"
 STEP_UP = "step_up"
-HOLD_TIMER = "hold_timer"
 BLOCK = "block"
+
+# POR QUE o 2FA foi pedido...
+STEP_UP_ACCOUNT_TAKEOVER = "account_takeover"
+STEP_UP_POSSIBLE_SCAM = "possible_scam"
+STEP_UP_LIMIT = "limit"
+# O cadastro do aparelho que a Res. BCB 403 prevê: o cliente que o motor ainda
+# não conhece, num aparelho novo, sem nenhum outro sinal de risco.
+STEP_UP_DEVICE_REGISTRATION = "device_registration"
+
+# ...e COMO. Para invasão, biometria facial com prova de vida: no SIM swap
+# o fraudador recebe o SMS, e o rosto é a prova que ele não tem. Para
+# golpe e limite, confirmação no app: a vítima manipulada passa em
+# qualquer segundo fator, e a fricção útil é o aviso de golpe na tela.
+FACE_LIVENESS = "face_liveness"
+IN_APP_CONFIRMATION = "in_app_confirmation"
 
 
 @dataclass(frozen=True)
@@ -25,22 +42,39 @@ class Decision:
     typology: Optional[str]
     recommended_action: str
     scores: dict
+    step_up_reason: Optional[str] = None
+    step_up_method: Optional[str] = None
+    scam_warning: bool = False
 
 
 class DecisionMaker:
     """Junta os vereditos dos sinais numa decisão só.
 
-    A decisão é pelo TIPO de fraude, não só pela intensidade:
-      • conta invadida (ato) → 2FA, porque o invasor não tem o segundo fator;
-      • golpe (app) e conta laranja (mule) → recusa, porque a vítima
-        manipulada passa no 2FA (EBA-ECB 2025).
+    O slide da QI Tech define as duas pontas: reprovar é "bloquear quando o
+    risco é claro"; 2FA é "fricção só onde há dúvida". Por isso:
 
-    Precedência: rejected > two_factor_required > approved. Dentro de
-    cada desfecho, a ordem dos `if` abaixo diz qual motivo dá nome à
-    decisão quando há mais de um.
+      • `rejected` só com evidência dura — marcação de fraude, conta sendo
+        esvaziada (velocidade no corte de recusa), recebedor pago por conta
+        marcada nas últimas 24 h, conta laranja vista por DOIS sinais
+        diferentes, ou Pix noturno longe de casa para destino novo acima do
+        teto da Res. BCB 142 (coação). Um sinal de laranja sozinho, por mais
+        pontos que tenha, é dúvida: pode ser o vendedor de carro usado que
+        acabou de abrir conta;
+      • `two_factor_required` quando há dúvida, dizendo POR QUE e COMO;
+      • `approved` com aviso quando o golpe tem sinal fraco.
+
+    Precedência: rejected > two_factor_required > approved.
     """
 
-    def decide(self, results: List[SignalResult], cuts: dict, deep_layer_timed_out: bool) -> Decision:
+    def decide(
+        self,
+        results: List[SignalResult],
+        cuts: dict,
+        deep_layer_timed_out: bool,
+        deep_layer_reason: Optional[str],
+        strong_step_up: bool = False,
+        unknown_client: bool = False,
+    ) -> Decision:
         scores = {ATO: 0, APP: 0, MULE: 0}
         for result in results:
             if result.typology is not None:
@@ -48,43 +82,95 @@ class DecisionMaker:
 
         hard_rejects = [result for result in results if result.outcome == REJECT]
         two_factors = [result for result in results if result.outcome == TWO_FACTOR]
-
-        # A combinação explícita entre regras: um 2FA que, junto com cara
-        # de golpe ou de conta laranja, vira recusa (o horário noturno).
-        escalated = [
-            result for result in two_factors if any(scores[typology] > 0 for typology in result.escalates_with)
-        ]
+        mule_signals = {result.signal_code for result in results if result.typology == MULE and result.points > 0}
 
         mule_above_cut = scores[MULE] >= cuts["mule_cut"]
-        app_above_cut = scores[APP] >= cuts["app_cut"]
 
         if any(result.rule_code == "MARCACAO" for result in hard_rejects):
             return Decision(AnalysisStatus.REJECTED, FRAUD_MARKER, BLOCK, scores)
 
-        if mule_above_cut:
+        if mule_above_cut and len(mule_signals) >= cuts["mule_min_distinct_signals"]:
             return Decision(AnalysisStatus.REJECTED, MULE_ACCOUNT, BLOCK, scores)
 
-        if app_above_cut:
-            return Decision(AnalysisStatus.REJECTED, APP_SCAM, HOLD_TIMER, scores)
+        # Recusa dura de conta laranja (proximidade de conta marcada a 1
+        # salto) tem a tipologia dela; a que sobra é a conta sendo esvaziada.
+        if any(result.typology == MULE for result in hard_rejects):
+            return Decision(AnalysisStatus.REJECTED, MULE_ACCOUNT, BLOCK, scores)
+
+        if any(result.signal_code == "LIMITE.noturno_fora_de_casa" for result in hard_rejects):
+            return Decision(AnalysisStatus.REJECTED, COERCION, BLOCK, scores)
 
         if hard_rejects:
             return Decision(AnalysisStatus.REJECTED, ACCOUNT_TAKEOVER, BLOCK, scores)
 
-        if escalated:
-            if scores[MULE] > 0:
-                return Decision(AnalysisStatus.REJECTED, MULE_ACCOUNT, BLOCK, scores)
-            return Decision(AnalysisStatus.REJECTED, APP_SCAM, HOLD_TIMER, scores)
-
         takeover = scores[ATO] >= cuts["ato_cut"] or any(result.typology == ATO for result in two_factors)
-
-        if takeover:
-            return Decision(AnalysisStatus.TWO_FACTOR_REQUIRED, ACCOUNT_TAKEOVER, STEP_UP, scores)
+        app_above_cut = scores[APP] >= cuts["app_cut"]
+        scam = app_above_cut or mule_above_cut
+        limit = any(result.typology is None for result in two_factors)
 
         # A camada profunda só roda quando já havia sinal de risco. Se ela
         # estourou o tempo, decidir no escuro seria aprovar com dúvida: o
-        # seguro é pedir 2FA com o que já se sabe.
-        if two_factors or deep_layer_timed_out:
-            return Decision(AnalysisStatus.TWO_FACTOR_REQUIRED, None, STEP_UP, scores)
+        # seguro é pedir 2FA pelo motivo que levou até ela.
+        if deep_layer_timed_out:
+            takeover = takeover or deep_layer_reason == STEP_UP_ACCOUNT_TAKEOVER
+            scam = scam or deep_layer_reason == STEP_UP_POSSIBLE_SCAM
+            limit = limit or deep_layer_reason == STEP_UP_LIMIT
+
+        # O cadastro do aparelho (Res. BCB 403): o cliente que o motor ainda
+        # não conhece, num aparelho novo, e NADA mais de arriscado além do
+        # limite do aparelho não cadastrado. Não é suspeita de invasão: é a
+        # biometria que a norma prevê, feita uma vez só.
+        other_risks = [
+            result for result in results if result.is_risk() and result.signal_code != UNREGISTERED_DEVICE
+        ]
+        if takeover and unknown_client and not other_risks and not deep_layer_timed_out:
+            return Decision(
+                AnalysisStatus.TWO_FACTOR_REQUIRED,
+                None,
+                STEP_UP,
+                scores,
+                step_up_reason=STEP_UP_DEVICE_REGISTRATION,
+                step_up_method=FACE_LIVENESS,
+            )
+
+        if takeover:
+            # Invasão e golpe ao mesmo tempo: o rosto prova quem opera, e o
+            # aviso de golpe protege o titular que está sendo manipulado.
+            return Decision(
+                AnalysisStatus.TWO_FACTOR_REQUIRED,
+                ACCOUNT_TAKEOVER,
+                STEP_UP,
+                scores,
+                step_up_reason=STEP_UP_ACCOUNT_TAKEOVER,
+                step_up_method=FACE_LIVENESS,
+                scam_warning=scam,
+            )
+
+        # Golpe e limite pedem a confirmação no app, a menos que o contexto
+        # diga que quem segura o celular pode não ser o titular: aí, biometria.
+        method = FACE_LIVENESS if strong_step_up else IN_APP_CONFIRMATION
+
+        if scam:
+            typology = APP_SCAM if app_above_cut else MULE_ACCOUNT
+            return Decision(
+                AnalysisStatus.TWO_FACTOR_REQUIRED,
+                typology,
+                STEP_UP,
+                scores,
+                step_up_reason=STEP_UP_POSSIBLE_SCAM,
+                step_up_method=method,
+                scam_warning=True,
+            )
+
+        if limit:
+            return Decision(
+                AnalysisStatus.TWO_FACTOR_REQUIRED,
+                None,
+                STEP_UP,
+                scores,
+                step_up_reason=STEP_UP_LIMIT,
+                step_up_method=method,
+            )
 
         if scores[APP] >= cuts["app_warn_cut"]:
             return Decision(AnalysisStatus.APPROVED, APP_SCAM, WARN, scores)

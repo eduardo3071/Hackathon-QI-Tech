@@ -9,6 +9,11 @@ from models import PayerProfile
 # da política.
 PROFILE_HISTORY_SIZE = 50
 
+# Quantos locais de Pix aprovados o perfil guarda para a zona habitual.
+# Também é tamanho de armazenamento: o raio e o mínimo de locais são da
+# política.
+LOCATION_HISTORY_SIZE = 20
+
 
 class PayerProfileRepository:
     def __init__(self, context: Context) -> None:
@@ -26,19 +31,24 @@ class PayerProfileRepository:
                 recent_approved=[],
                 approved_count=0,
                 max_night_approved_amount=0,
+                recent_locations=[],
             )
             self.session.add(profile)
 
         return profile
 
-    def add_approved(self, profile: PayerProfile, amount: int, approved_at: datetime) -> None:
+    def add_approved(self, profile: PayerProfile, amount: int, approved_at: datetime, to_new_payee: bool) -> None:
         """Acrescenta um Pix aprovado e descarta os mais antigos além dos 50.
 
-        A lista é TROCADA, não alterada no lugar: o SQLAlchemy não
+        `to_new_payee` marca o Pix que foi para um destino que o pagador
+        nunca tinha pago: é com esses que o PERFIL.valor compara um novo
+        destino. A lista é TROCADA, não alterada no lugar: o SQLAlchemy não
         percebe um `.append` dentro de uma coluna JSONB, e a mudança não
         seria gravada.
         """
-        recent_approved = profile.recent_approved + [{"amount": amount, "at": approved_at.isoformat()}]
+        recent_approved = profile.recent_approved + [
+            {"amount": amount, "at": approved_at.isoformat(), "to_new_payee": to_new_payee}
+        ]
         recent_approved.sort(key=lambda approved: datetime.fromisoformat(approved["at"]))
 
         profile.recent_approved = recent_approved[-PROFILE_HISTORY_SIZE:]
@@ -51,3 +61,12 @@ class PayerProfileRepository:
         profile.last_latitude = latitude
         profile.last_longitude = longitude
         profile.last_geolocation_at = seen_at
+
+    def add_location(self, profile: PayerProfile, latitude, longitude, seen_at: datetime) -> None:
+        """Acrescenta o local de um Pix aprovado e descarta os mais antigos além dos 20 (lista TROCADA, como acima)."""
+        recent_locations = profile.recent_locations + [
+            {"latitude": float(latitude), "longitude": float(longitude), "at": seen_at.isoformat()}
+        ]
+        recent_locations.sort(key=lambda location: datetime.fromisoformat(location["at"]))
+
+        profile.recent_locations = recent_locations[-LOCATION_HISTORY_SIZE:]

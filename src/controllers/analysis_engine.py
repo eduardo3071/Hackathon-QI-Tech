@@ -1,12 +1,18 @@
 import time
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
-from controllers.decision import Decision, DecisionMaker
+from controllers.decision import (
+    STEP_UP_ACCOUNT_TAKEOVER,
+    STEP_UP_LIMIT,
+    STEP_UP_POSSIBLE_SCAM,
+    Decision,
+    DecisionMaker,
+)
 from controllers.features import PixFeatures
 from controllers.rules import RULES
 from controllers.rules.policy_parameters import PolicyParameters
-from controllers.rules.signal_result import NOT_EVALUATED, SignalResult
+from controllers.rules.signal_result import APP, ATO, MULE, NOT_EVALUATED, SignalResult
 
 FAST = "fast"
 DEEP = "deep"
@@ -48,33 +54,84 @@ class AnalysisEngine:
                 results.extend(rule.evaluate(features, params, layer))
 
         cuts = params.of(DECISION_PARAMETERS)
+        strong_step_up = self._needs_strong_step_up(features, cuts)
+        # O cliente que o motor ainda não conhece: nenhum aparelho dele é confiável.
+        unknown_client = not features.payer_has_trusted_device
 
-        if not self._needs_deep_layer(features, results):
+        deep_layer_reason = self._deep_layer_reason(features, results)
+
+        if deep_layer_reason is None:
             for rule in self.rules:
                 for signal_code in rule.layer_signals(DEEP_LAYER):
                     results.append(
                         rule.not_needed(signal_code, DEEP_LAYER, "Caminho rápido: nenhum sinal de risco nas camadas 0 e 1.")
                     )
 
-            decision = self.decision_maker.decide(results, cuts, deep_layer_timed_out=False)
+            decision = self.decision_maker.decide(
+                results,
+                cuts,
+                deep_layer_timed_out=False,
+                deep_layer_reason=None,
+                strong_step_up=strong_step_up,
+                unknown_client=unknown_client,
+            )
             return EngineResult(results, decision, FAST, list(ALWAYS_LAYERS))
 
         deep_layer_timed_out = self._run_deep_layer(features, params, results, cuts["deep_layer_timeout_ms"])
 
-        decision = self.decision_maker.decide(results, cuts, deep_layer_timed_out)
+        decision = self.decision_maker.decide(
+            results,
+            cuts,
+            deep_layer_timed_out,
+            deep_layer_reason,
+            strong_step_up=strong_step_up,
+            unknown_client=unknown_client,
+        )
         return EngineResult(results, decision, DEEP, list(ALWAYS_LAYERS) + [DEEP_LAYER])
 
-    def _needs_deep_layer(self, features: PixFeatures, results: List[SignalResult]) -> bool:
-        """O gatilho: algum sinal de risco, ou um contexto que o justifique.
+    @staticmethod
+    def _needs_strong_step_up(features: PixFeatures, cuts: dict) -> bool:
+        """Se qualquer 2FA deste Pix tem de ser biometria facial, e não a confirmação no app.
 
-        Contexto de risco é o que o plano lista: destino novo, aparelho
-        novo e horário noturno. Valor fora do perfil e conta destino
-        recente já aparecem como sinal nas camadas 0 e 1.
+        A confirmação no próprio celular não protege quando é o ladrão quem o
+        segura: na bateria, o celular roubado e desbloqueado confirmou 3 Pix
+        seguidos no app. Por isso `in_app_confirmation` só fica para o
+        aparelho confiável, sem biometria reprovada nas últimas 24 h, perto
+        de onde o pagador costuma estar. Longe de TODOS os últimos locais
+        aprovados há pelo menos 24 h (mais de `street_mode_km`) vale a
+        biometria: é o que o Modo Rua do Nubank faz.
         """
-        if any(result.is_risk() for result in results):
-            return True
+        # Os locais habituais são os de Pix aprovados há pelo menos 24 h: o
+        # Pix que o ladrão aprovou na rua há 2 minutos não vira "casa".
+        far_from_usual_places = (
+            features.habitual_nearest_km is not None and features.habitual_nearest_km > cuts["street_mode_km"]
+        )
 
-        return not features.device_known or features.pair_approved_count == 0 or bool(features.is_night)
+        return not features.device_trusted or features.payer_biometric_failed_recently or far_from_usual_places
+
+    def _deep_layer_reason(self, features: PixFeatures, results: List[SignalResult]) -> Optional[str]:
+        """O gatilho: POR QUE este Pix precisa da camada 2 — ou None, e ele sai pelo caminho rápido.
+
+        Vale um sinal de risco das camadas 0 e 1 ou um contexto de risco do
+        plano: aparelho não confiável, destino não recorrente, horário noturno. Valor
+        fora do perfil e conta destino recente já aparecem como sinal.
+
+        O motivo é o mesmo vocabulário do `step_up_reason`: se a camada 2
+        estourar o tempo, o 2FA sai pelo motivo que levou até ela.
+        """
+        risk_typologies = {result.typology for result in results if result.is_risk()}
+        has_risk_signal = any(result.is_risk() for result in results)
+
+        if ATO in risk_typologies or not features.device_trusted:
+            return STEP_UP_ACCOUNT_TAKEOVER
+
+        if APP in risk_typologies or MULE in risk_typologies or not features.destination_recurring:
+            return STEP_UP_POSSIBLE_SCAM
+
+        if has_risk_signal or features.is_night:
+            return STEP_UP_LIMIT
+
+        return None
 
     def _run_deep_layer(self, features, params, results, timeout_ms: int) -> bool:
         """Roda a camada 2 dentro do orçamento de tempo. Devolve se estourou.

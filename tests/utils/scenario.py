@@ -24,14 +24,19 @@ class Scenario:
 
     @staticmethod
     def register_device(payer_document: str, device_id: str, transaction_date: str) -> None:
-        """Um Pix pequeno e aprovado: daqui em diante o aparelho é conhecido deste pagador."""
-        response = Scenario.send(
-            payer_document=payer_document,
-            device_id=device_id,
-            transaction_date=transaction_date,
-            amount=10000,
-        )
-        assert response["status"] == "approved", response
+        """Dois Pix pequenos e aprovados, 24 h antes e em `transaction_date`.
+
+        Daqui em diante o aparelho é CONFIÁVEL para este pagador: 2 Pix
+        aprovados, o primeiro há pelo menos 24 h.
+        """
+        for date in (shift_date(transaction_date, days=-1), transaction_date):
+            response = Scenario.send(
+                payer_document=payer_document,
+                device_id=device_id,
+                transaction_date=date,
+                amount=10000,
+            )
+            assert response["status"] == "approved", response
 
     @staticmethod
     def build_history(
@@ -72,3 +77,15 @@ def reason_for(response: dict, signal: str) -> Optional[dict]:
 
 def not_needed_signals(response: dict) -> List[str]:
     return [item["signal"] for item in response["metadata"]["not_needed"]]
+
+
+# O que o GET (o dossiê) acrescenta ao que o POST respondeu: a história
+# da decisão, não a decisão.
+DOSSIER_ONLY_FIELDS = ("initial_status", "two_factor", "status_history")
+
+
+def decision_of(response: dict) -> dict:
+    """A resposta sem o que só o dossiê traz: o que o POST respondeu."""
+    metadata = {field: value for field, value in response["metadata"].items() if field not in DOSSIER_ONLY_FIELDS}
+
+    return {"key": response["key"], "status": response["status"], "metadata": metadata}

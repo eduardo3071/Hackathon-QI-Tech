@@ -18,21 +18,27 @@ class TestRuleContaRecebedoraContaNova:
     """Regra 6 — CONTA_RECEBEDORA.conta_nova: quem recebe é confiável?
 
     Conta destino com menos de 30 dias, recebendo o primeiro crédito, num
-    valor fora do perfil do pagador: é a conta laranja recém-aberta, e
-    recusa sozinha. Só a idade, sem o resto, pontua pouco: muita laranja
-    é conta antiga alugada, e muita conta nova é gente de bem.
+    valor fora do perfil do pagador: é a cara da conta laranja
+    recém-aberta — mas também do vendedor de carro usado que acabou de
+    abrir conta. Sozinha, pede 2FA com aviso de golpe; recusa só junto de
+    outro sinal de conta laranja. Só a idade, sem o resto, pontua pouco.
     """
 
-    def test_new_account_first_credit_out_of_profile_is_rejected(self):
+    def test_new_account_first_credit_out_of_profile_requires_two_factor_with_scam_warning(self):
         context = payer_with_known_device()
 
         response = Scenario.send(
             **context, amount=150000, payee_opening_date=SEVEN_DAYS_BEFORE, transaction_date=DAY
         )
 
-        assert response["status"] == "rejected"
-        assert response["metadata"]["typology"] == "mule_account"
-        assert response["metadata"]["recommended_action"] == "block"
+        assert response["status"] == "two_factor_required"
+        # O primeiro Pix alto para conta PF nova também é o falso parente
+        # (CONTA_RECEBEDORA.primeiro_pix_alto): o placar de golpe chega ao
+        # corte, e a tipologia é golpe; status, motivo e método não mudam.
+        assert response["metadata"]["typology"] == "app_scam"
+        assert response["metadata"]["step_up_reason"] == "possible_scam"
+        assert response["metadata"]["step_up_method"] == "in_app_confirmation"
+        assert response["metadata"]["scam_warning"] is True
         reason = reason_for(response, "CONTA_RECEBEDORA.conta_nova")
         assert reason["typology"] == "mule"
         assert reason["observed"]["account_age_days"] == 7
@@ -82,11 +88,27 @@ class TestRuleContaRecebedoraFanIn:
     clássico de conta laranja. Só vale para PF: lojista recebe de muitos.
     """
 
-    def _payers_to(self, payee: dict, count: int) -> list:
-        """`count` pagadores diferentes, um por minuto, R$ 50 cada, de aparelhos novos."""
+    def _payers_to(self, payee: dict, count: int, amount: int = 20000) -> list:
+        """`count` pagadores diferentes, um por minuto, R$ 200 cada (o fan-in só vale com R$ 1.000 na janela).
+
+        R$ 200 é o limite por Pix do aparelho não cadastrado (Res. BCB 403):
+        os pagadores chegam de aparelhos novos e passam sem 2FA de aparelho.
+        """
         responses = []
         for minute in range(count):
-            responses.append(Scenario.send(**payee, amount=5000, transaction_date=shift_date(DAY, minutes=minute)))
+            responses.append(Scenario.send(**payee, amount=amount, transaction_date=shift_date(DAY, minutes=minute)))
+
+        return responses
+
+    def _known_payers_to(self, payee: dict, count: int, amount: int) -> list:
+        """`count` clientes diferentes, um por minuto, cada um do seu aparelho confiável (cadastro já feito)."""
+        responses = []
+        for minute in range(count):
+            buyer = {"payer_document": RandomGenerator.generate_cpf(), "device_id": f"dvc-{uuid4().hex[:12]}"}
+            Scenario.register_device(buyer["payer_document"], buyer["device_id"], shift_date(DAY, days=-5))
+            responses.append(
+                Scenario.send(**buyer, **payee, amount=amount, transaction_date=shift_date(DAY, minutes=minute))
+            )
 
         return responses
 
@@ -119,13 +141,115 @@ class TestRuleContaRecebedoraFanIn:
         assert "CONTA_RECEBEDORA.fan_in" in not_needed_signals(responses[5])
 
     def test_fan_in_to_a_new_account_is_rejected(self):
-        """Conta aberta há 7 dias recebendo de 5 pessoas na mesma hora: laranja (20 + 40)."""
+        """Conta aberta há 7 dias recebendo de 3 pessoas (R$ 1.050) na mesma hora: laranja (20 + 40).
+
+        Conta com menos de 30 dias converge com 3 pagadores, e não 5 (item 7
+        da bateria de realidade): antes, só o 5º pagador travava.
+        """
         new_account = self._old_person_account()
         new_account["payee_opening_date"] = SEVEN_DAYS_BEFORE
 
-        responses = self._payers_to(new_account, count=5)
+        responses = self._known_payers_to(new_account, count=4, amount=35000)
 
-        assert [response["status"] for response in responses[:4]] == ["approved"] * 4
-        assert responses[4]["status"] == "rejected"
-        assert responses[4]["metadata"]["typology"] == "mule_account"
-        assert responses[4]["metadata"]["scores"]["mule"] == 60
+        assert [response["status"] for response in responses[:2]] == ["approved"] * 2
+        assert responses[2]["status"] == "rejected"
+        assert responses[2]["metadata"]["typology"] == "mule_account"
+        assert responses[2]["metadata"]["scores"]["mule"] == 60
+
+
+def payee_credited_at(transaction_date: str) -> dict:
+    """Uma conta destino que o motor viu receber um Pix aprovado em `transaction_date`."""
+    payee = {
+        "payee_document": RandomGenerator.generate_cpf(),
+        "payee_account_number": RandomGenerator.generate_account_number(),
+    }
+    response = Scenario.send(**payee, amount=10000, transaction_date=transaction_date)
+    assert response["status"] == "approved", response
+
+    return payee
+
+
+class TestRuleContaRecebedoraDormente:
+    """Regra 6 — CONTA_RECEBEDORA.dormente: destino que reaparece depois de 60 dias sem movimento na nossa base.
+
+    A conta laranja alugada costuma ser uma conta antiga, parada, que
+    volta a receber de repente. O motor só sabe que a conta ficou parada
+    NA NOSSA BASE — ela pode ter movimentado em outro banco. Pontua
+    `mule` abaixo do corte: reforça outro sinal de laranja.
+    """
+
+    def test_destination_back_after_60_days_scores_mule(self):
+        payee = payee_credited_at(shift_date(DAY, days=-61))
+
+        response = Scenario.send(**payee, amount=15000, transaction_date=DAY)
+
+        reason = reason_for(response, "CONTA_RECEBEDORA.dormente")
+        assert reason["typology"] == "mule"
+        assert reason["points"] > 0
+        assert reason["observed"]["days_without_movement"] == 61
+
+    def test_destination_back_after_59_days_passes(self):
+        payee = payee_credited_at(shift_date(DAY, days=-59))
+
+        response = Scenario.send(**payee, amount=15000, transaction_date=DAY)
+
+        assert reason_for(response, "CONTA_RECEBEDORA.dormente") is None
+        assert "CONTA_RECEBEDORA.dormente" in response["metadata"]["passed"]
+
+    def test_destination_never_seen_receiving_passes(self):
+        response = Scenario.send(amount=15000, transaction_date=DAY)
+
+        assert reason_for(response, "CONTA_RECEBEDORA.dormente") is None
+
+
+FIVE_DAYS_BEFORE = "2026-10-12T09:00:00-03:00"
+
+
+class TestRuleContaRecebedoraVariasInstituicoes:
+    """Regra 6 — CONTA_RECEBEDORA.varias_instituicoes: o recebedor abriu contas em vários bancos de uma vez?
+
+    O mesmo CPF recebedor com contas abertas há menos de 30 dias em 2 ou
+    mais instituições (ISPBs) diferentes: a laranja que abre contas em
+    série para receber de várias vítimas. O motor só conhece as contas que
+    já apareceram como destino na nossa base. Pontua `mule` abaixo do
+    corte: reforça.
+    """
+
+    def test_new_accounts_in_two_institutions_score_mule(self):
+        payee_document = RandomGenerator.generate_cpf()
+        Scenario.send(payee_document=payee_document, payee_participant="60701190", payee_opening_date=SEVEN_DAYS_BEFORE, transaction_date=DAY)
+
+        response = Scenario.send(
+            payee_document=payee_document,
+            payee_participant="18236120",
+            payee_opening_date=FIVE_DAYS_BEFORE,
+            transaction_date=shift_date(DAY, minutes=10),
+        )
+
+        reason = reason_for(response, "CONTA_RECEBEDORA.varias_instituicoes")
+        assert reason["typology"] == "mule"
+        assert reason["observed"]["institutions"] == 2
+
+    def test_second_institution_account_older_than_30_days_passes(self):
+        payee_document = RandomGenerator.generate_cpf()
+        Scenario.send(payee_document=payee_document, payee_participant="60701190", payee_opening_date=SEVEN_DAYS_BEFORE, transaction_date=DAY)
+
+        response = Scenario.send(
+            payee_document=payee_document,
+            payee_participant="18236120",
+            payee_opening_date=THIRTY_ONE_DAYS_BEFORE,
+            transaction_date=shift_date(DAY, minutes=10),
+        )
+
+        assert reason_for(response, "CONTA_RECEBEDORA.varias_instituicoes") is None
+        assert "CONTA_RECEBEDORA.varias_instituicoes" in response["metadata"]["passed"]
+
+    def test_two_new_accounts_in_the_same_institution_pass(self):
+        payee_document = RandomGenerator.generate_cpf()
+        Scenario.send(payee_document=payee_document, payee_opening_date=SEVEN_DAYS_BEFORE, transaction_date=DAY)
+
+        response = Scenario.send(
+            payee_document=payee_document, payee_opening_date=FIVE_DAYS_BEFORE, transaction_date=shift_date(DAY, minutes=10)
+        )
+
+        assert reason_for(response, "CONTA_RECEBEDORA.varias_instituicoes") is None

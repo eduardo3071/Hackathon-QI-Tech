@@ -142,6 +142,15 @@ def create_app() -> FastAPI:
         pix_transaction_resource.on_get_by_id,
         methods=["GET"],
     )
+    # O retorno do 2FA não está no slide (só o POST e o GET). É uma rota
+    # isolada — um método no resource, um no controller, um arquivo de
+    # teste — para sair sem quebrar nada se a QI Tech disser que está
+    # fora do escopo.
+    application.add_api_route(
+        "/pix/transaction/{pix_id}",
+        pix_transaction_resource.on_patch,
+        methods=["PATCH"],
+    )
 
     register_error_handlers(application)
 
