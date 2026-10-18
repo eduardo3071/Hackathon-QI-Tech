@@ -255,6 +255,12 @@ pode ser nulo, `to_status_id`, `event_datetime`, `created_at`). Toda análise gr
 - Por quê: a rifa da formatura (8 amigos mandando R$ 20 a uma conta de 12 dias) era RECUSADA (falso positivo), enquanto a
   falsa venda e a laranja só travavam na 5ª vítima.
 
+## Loja PJ antiga não é golpe (bateria de realidade, item 8)
+
+- Para recebedor **PJ com conta de 1 ano ou mais** (`company_min_account_age_days: 365` em `PERFIL.valor`), o
+  `PERFIL.valor` pontua no máximo a faixa de aviso (`app_points`, 40): `approved` com `warn`, nunca 2FA sozinho.
+- Por quê: uma TV de R$ 3.500 na Black Friday, numa loja com CNPJ de 12 anos, pedia 2FA com aviso de golpe.
+
 ## Velocidade
 
 - Reenvio com `id` novo, mesmo pagador, mesmo recebedor e mesmo valor dentro da janela conta como **uma** tentativa.

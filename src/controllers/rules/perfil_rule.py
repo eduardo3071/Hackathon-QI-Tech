@@ -5,6 +5,7 @@ from controllers.features import PixFeatures
 from controllers.rules.base_rule import BaseRule
 from controllers.rules.policy_parameters import PolicyParameters
 from controllers.rules.signal_result import APP, ATO, PASS, WARN, SignalResult
+from models import Account
 from utils.money import format_brl
 
 VALUE = "PERFIL.valor"
@@ -144,7 +145,15 @@ class PerfilRule(BaseRule):
         # do piso), o segundo pontua o corte de golpe: 2FA com aviso.
         app_points = parameters["app_points"]
         degree = ""
-        if check["far_out_of_profile"]:
+        # Loja PJ antiga (CNPJ de um ano ou mais) não é golpe: o valor fora do
+        # perfil só pontua a faixa de aviso, e este sinal nunca pede 2FA
+        # sozinho. A TV da Black Friday numa loja de 12 anos não é o falso
+        # parente.
+        established_company = (
+            features.payee_type == Account.COMPANY
+            and features.payee_account_age_days >= parameters["company_min_account_age_days"]
+        )
+        if check["far_out_of_profile"] and not established_company:
             app_points = parameters["high_app_points"]
             degree = f" — {parameters['high_median_multiplier']}x a mediana ou mais"
 

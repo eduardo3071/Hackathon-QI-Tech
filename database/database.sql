@@ -368,8 +368,10 @@ CROSS JOIN (VALUES
     -- diferentes e valor atual de no máximo 150 por cento do maior já pago.
     -- Destino novo: compara com os valores que o pagador já mandou para
     -- destinos novos, a partir de 5 casos; com menos, usa o perfil geral.
+    -- Recebedor PJ com conta de 365 dias ou mais: o sinal só chega à faixa
+    -- de aviso (aprova com warn), nunca pede 2FA sozinho.
     ('PERFIL.valor',
-     '{"window_days": 90, "min_history": 5, "percentile": 95, "median_multiplier": 5, "fallback_amount": 100000, "app_points": 40, "ato_points": 60, "high_median_multiplier": 10, "high_min_amount": 100000, "high_app_points": 60, "recurring_min_days": 2, "recurring_max_growth_percent": 150, "new_payee_min_history": 5}'),
+     '{"window_days": 90, "min_history": 5, "percentile": 95, "median_multiplier": 5, "fallback_amount": 100000, "app_points": 40, "ato_points": 60, "high_median_multiplier": 10, "high_min_amount": 100000, "high_app_points": 60, "recurring_min_days": 2, "recurring_max_growth_percent": 150, "new_payee_min_history": 5, "company_min_account_age_days": 365}'),
 
     -- Estimativa: conta destino com menos de 30 dias (fator do art. 39-B da
     -- Res. BCB 147). Primeiro crédito fora do perfil pontua 60; só a

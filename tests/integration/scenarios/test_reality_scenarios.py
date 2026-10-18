@@ -106,6 +106,48 @@ class TestRecurringDestinationNeedsRealHistory:
             assert pix["status"] == "approved", (month, pix["metadata"])
 
 
+class TestOldCompanyIsNotAScam:
+    TWELVE_YEARS_BEFORE = "2014-10-17T10:00:00-03:00"
+
+    def _store(self, document: str) -> dict:
+        return {
+            "payee_document": document,
+            "payee_account_number": RandomGenerator.generate_account_number(),
+            "payee_opening_date": self.TWELVE_YEARS_BEFORE,
+        }
+
+    def test_black_friday_tv_at_an_old_store_is_approved_with_a_warning(self):
+        """Item 8 — uma TV de R$ 3.500 na Black Friday, numa loja com CNPJ de 12 anos: aviso, nunca 2FA.
+
+        Antes, o valor fora do perfil (35x a mediana) para um destino novo
+        pedia 2FA com aviso de golpe, mesmo num lojista consolidado. Para
+        recebedor PJ com conta de 1 ano ou mais, o PERFIL.valor no máximo
+        aprova com aviso.
+        """
+        client = client_with_history()
+        origin = {"payer_document": client["payer_document"], "device_id": client["device_id"]}
+
+        response = send(
+            **origin, **self._store(RandomGenerator.generate_cnpj()), amount=350000, transaction_date=DAY
+        )
+
+        assert response["status"] == "approved", response["metadata"]
+        assert response["metadata"]["recommended_action"] == "warn"
+        assert reason_for(response, "PERFIL.valor")["typology"] == "app"
+
+    def test_same_amount_to_a_person_account_still_asks_two_factor(self):
+        """Caso logo abaixo: o mesmo valor para uma pessoa física (mesma idade de conta) segue pedindo 2FA com aviso."""
+        client = client_with_history()
+        origin = {"payer_document": client["payer_document"], "device_id": client["device_id"]}
+
+        response = send(
+            **origin, **self._store(RandomGenerator.generate_cpf()), amount=350000, transaction_date=DAY
+        )
+
+        assert response["status"] == "two_factor_required", response["metadata"]
+        assert response["metadata"]["scam_warning"] is True
+
+
 class TestFanInNeedsMoneyAndFewerPayersForNewAccounts:
     TWELVE_DAYS_BEFORE = "2026-10-05T09:00:00-03:00"
 
