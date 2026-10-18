@@ -222,6 +222,15 @@ pode ser nulo, `to_status_id`, `event_datetime`, `created_at`). Toda análise gr
 - Por quê: com um único Pix aprovado já bastando, o falso investimento (R$ 500, 1.000, 3.000, 8.000 ao mesmo destino
   em 8 dias) saía `approved` sem aviso do 2º Pix em diante.
 
+## Perfil para destino novo (bateria de realidade, item 4)
+
+- Quando o destino do Pix é novo (o pagador nunca pagou um Pix aprovado a ele), o `PERFIL.valor` compara o valor com
+  os valores que o pagador já mandou para **destinos novos** (marcados `to_new_payee` no perfil), a partir de **5
+  casos** (`new_payee_min_history: 5`); com menos, usa o perfil geral. É o mesmo sinal, com base de comparação melhor.
+- Por quê: o P95 do perfil geral misturava o aluguel (recorrente e alto) com o resto, e o falso parente
+  (R$ 1.890 para conta de 15 dias) passava por "dentro do perfil". O `observed.basis` do sinal diz qual base valeu
+  (`general` ou `new_payees`).
+
 ## Velocidade
 
 - Reenvio com `id` novo, mesmo pagador, mesmo recebedor e mesmo valor dentro da janela conta como **uma** tentativa.

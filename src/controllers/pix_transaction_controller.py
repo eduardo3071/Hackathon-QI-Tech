@@ -218,6 +218,7 @@ class PixTransactionController(BaseController):
             is_night=bool(analysis.features["is_night"]),
             same_ownership=analysis.features["same_ownership"],
             confirmed_scam_warning=analysis.scam_warning,
+            to_new_payee=analysis.features["pair_approved_count"] == 0,
             params=params,
         )
 
@@ -342,6 +343,7 @@ class PixTransactionController(BaseController):
             is_night=bool(features.is_night),
             same_ownership=features.same_ownership,
             confirmed_scam_warning=False,
+            to_new_payee=features.pair_approved_count == 0,
             params=params,
         )
 
@@ -353,6 +355,7 @@ class PixTransactionController(BaseController):
         is_night: bool,
         same_ownership: bool,
         confirmed_scam_warning: bool,
+        to_new_payee: bool,
         params: PolicyParameters,
     ) -> None:
         """Um Pix que saiu: o perfil, o par e o aparelho aprendem com ele.
@@ -375,7 +378,7 @@ class PixTransactionController(BaseController):
         if confirmed_scam_warning:
             self.payer_payee_pair_repository.add_scam_step_up(pair)
         else:
-            self.payer_profile_repository.add_approved(profile, pix["amount"], transaction_date)
+            self.payer_profile_repository.add_approved(profile, pix["amount"], transaction_date, to_new_payee)
             local_day = transaction_date.astimezone(ZoneInfo(LOCAL_TIMEZONE)).date()
             self.payer_payee_pair_repository.add_approved(pair, pix["amount"], local_day)
 

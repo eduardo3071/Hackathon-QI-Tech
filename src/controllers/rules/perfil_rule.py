@@ -48,6 +48,19 @@ class PerfilRule(BaseRule):
         """
         amounts = features.profile_amounts
         amount = features.amount
+        basis = "general"
+
+        # Destino novo: o valor se compara com o que o pagador já mandou para
+        # destinos novos, e não com o perfil geral. O aluguel (recorrente e
+        # alto) elevava o P95 geral, e o falso parente de R$ 1.890 passava
+        # por "dentro do perfil". Com poucos casos de destino novo, vale o geral.
+        if (
+            features.pair_approved_count == 0
+            and features.profile_new_payee_amounts is not None
+            and len(features.profile_new_payee_amounts) >= parameters["new_payee_min_history"]
+        ):
+            amounts = features.profile_new_payee_amounts
+            basis = "new_payees"
 
         if len(amounts) >= parameters["min_history"]:
             amounts_median = int(median(amounts))
@@ -70,6 +83,7 @@ class PerfilRule(BaseRule):
                     "median": amounts_median,
                     f"p{parameters['percentile']}": amounts_percentile,
                     "history_size": len(amounts),
+                    "basis": basis,
                 },
                 "threshold": {
                     f"p{parameters['percentile']}": amounts_percentile,

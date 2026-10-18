@@ -48,6 +48,9 @@ class PixFeatures:
 
     # Regra 4 — perfil
     profile_amounts: Optional[List[int]]
+    # Dos valores acima, só os que foram para um destino que o pagador ainda
+    # não tinha pago: a base de comparação quando o destino deste Pix é novo.
+    profile_new_payee_amounts: Optional[List[int]]
     pair_approved_count: int
     pair_approved_days: int
     pair_max_approved_amount: int

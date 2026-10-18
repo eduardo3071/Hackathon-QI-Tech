@@ -102,6 +102,9 @@ class FeatureBuilder:
             velocity_amount=velocity["amount"],
             fractioning_window_amounts=self._fractioning_window_amounts(pix, params.of("RITMO.fracionamento")),
             profile_amounts=self._profile_amounts(profile, transaction_date, params.of("PERFIL.valor")),
+            profile_new_payee_amounts=self._profile_amounts(
+                profile, transaction_date, params.of("PERFIL.valor"), new_payees_only=True
+            ),
             pair_approved_count=pair_approved_count,
             pair_approved_days=pair_approved_days,
             pair_max_approved_amount=pair_max_approved_amount,
@@ -272,8 +275,12 @@ class FeatureBuilder:
 
         return {"attempts": len(groups), "amount": sum(amount for _payee, amount in groups)}
 
-    def _profile_amounts(self, profile, transaction_date: datetime, parameters):
-        """Os valores aprovados do pagador dentro da janela do perfil (90 dias)."""
+    def _profile_amounts(self, profile, transaction_date: datetime, parameters, new_payees_only: bool = False):
+        """Os valores aprovados do pagador dentro da janela do perfil (90 dias).
+
+        Com `new_payees_only`, só os que foram para um destino que o
+        pagador nunca tinha pago: a base de comparação de um destino novo.
+        """
         if parameters is None:
             return None
 
@@ -284,6 +291,9 @@ class FeatureBuilder:
 
         amounts = []
         for approved in profile.recent_approved:
+            if new_payees_only and not approved.get("to_new_payee", False):
+                continue
+
             approved_at = datetime.fromisoformat(approved["at"])
             if window_start <= approved_at <= transaction_date:
                 amounts.append(approved["amount"])

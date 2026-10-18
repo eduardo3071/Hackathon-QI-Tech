@@ -37,14 +37,18 @@ class PayerProfileRepository:
 
         return profile
 
-    def add_approved(self, profile: PayerProfile, amount: int, approved_at: datetime) -> None:
+    def add_approved(self, profile: PayerProfile, amount: int, approved_at: datetime, to_new_payee: bool) -> None:
         """Acrescenta um Pix aprovado e descarta os mais antigos além dos 50.
 
-        A lista é TROCADA, não alterada no lugar: o SQLAlchemy não
+        `to_new_payee` marca o Pix que foi para um destino que o pagador
+        nunca tinha pago: é com esses que o PERFIL.valor compara um novo
+        destino. A lista é TROCADA, não alterada no lugar: o SQLAlchemy não
         percebe um `.append` dentro de uma coluna JSONB, e a mudança não
         seria gravada.
         """
-        recent_approved = profile.recent_approved + [{"amount": amount, "at": approved_at.isoformat()}]
+        recent_approved = profile.recent_approved + [
+            {"amount": amount, "at": approved_at.isoformat(), "to_new_payee": to_new_payee}
+        ]
         recent_approved.sort(key=lambda approved: datetime.fromisoformat(approved["at"]))
 
         profile.recent_approved = recent_approved[-PROFILE_HISTORY_SIZE:]

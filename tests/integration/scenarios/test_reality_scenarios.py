@@ -106,6 +106,48 @@ class TestRecurringDestinationNeedsRealHistory:
             assert pix["status"] == "approved", (month, pix["metadata"])
 
 
+class TestProfileForNewDestinations:
+    def _client_with_rent_and_small_pix_to_new_payees(self) -> dict:
+        """O aluguel de R$ 2.000 entra no perfil geral (P95 R$ 2.000), e o resto são Pix de R$ 100 para destinos novos."""
+        origin = {"payer_document": RandomGenerator.generate_cpf(), "device_id": new_device()}
+        Scenario.register_device(origin["payer_document"], origin["device_id"], HISTORY_START)
+
+        landlord = new_payee()
+        for month in range(4):
+            rent = send(**origin, **landlord, amount=200000, transaction_date=shift_date(HISTORY_START, days=1 + month))
+            assert rent["status"] == "approved", rent["metadata"]
+
+        for index in range(19):
+            small = send(**origin, amount=10000, transaction_date=shift_date(HISTORY_START, days=6, hours=index))
+            assert small["status"] == "approved", small["metadata"]
+
+        return {"origin": origin, "landlord": landlord}
+
+    def test_fake_relative_to_a_new_account_is_not_excused_by_the_rent(self):
+        """Item 4 — o falso parente: R$ 1.890 para um destino novo, e o aluguel de R$ 2.000 do perfil geral não o desculpa.
+
+        Antes, o P95 do perfil misturava o aluguel (recorrente e alto) com o
+        resto, e o motor aceitava R$ 2.000 para qualquer um. Para destino
+        novo, o PERFIL.valor compara com o que o pagador já mandou para
+        destinos novos.
+        """
+        client = self._client_with_rent_and_small_pix_to_new_payees()
+
+        response = send(**client["origin"], **new_payee(), amount=189000, transaction_date=DAY)
+
+        assert response["status"] == "two_factor_required", response["metadata"]
+        assert response["metadata"]["scam_warning"] is True
+        assert reason_for(response, "PERFIL.valor")["observed"]["basis"] == "new_payees"
+
+    def test_the_rent_itself_is_still_within_the_general_profile(self):
+        """Caso logo abaixo: o aluguel do mês seguinte, para o destino de sempre, continua aprovado."""
+        client = self._client_with_rent_and_small_pix_to_new_payees()
+
+        response = send(**client["origin"], **client["landlord"], amount=200000, transaction_date=DAY)
+
+        assert response["status"] == "approved", response["metadata"]
+
+
 class TestPriorSuspicionDoesNotPunishTheMonthlyBill:
     def _rent_first_month(self) -> dict:
         """Cliente com histórico paga R$ 2.000 de aluguel pela primeira vez: 2FA de golpe, e ele confirma."""
