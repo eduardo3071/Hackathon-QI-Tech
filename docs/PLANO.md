@@ -1,5 +1,7 @@
 # Plano de desenvolvimento — Motor Antifraude Pix
 
+> **Aviso (18/10):** este plano é o histórico do projeto e está desatualizado em vários pontos (período de aprendizado do cliente desconhecido, destino recorrente, método do 2FA, fan-in, hold_timer, novos sinais). **Valem o README.md e o CLAUDE.md.** Onde este arquivo divergir deles, ignore este arquivo.
+
 Oct 17, 2026 · @Thomaz
 
 O plano entrega até domingo, 18/10, às 12h um motor antifraude Pix que decide pelo tipo de fraude, enxerga a rede de contas a partir do próprio histórico e combina regras explicáveis com um modelo de Machine Learning que sinaliza o que as regras ainda não conhecem, sem prejudicar o cliente legítimo nem atrasar o Pix.
