@@ -106,6 +106,50 @@ class TestRecurringDestinationNeedsRealHistory:
             assert pix["status"] == "approved", (month, pix["metadata"])
 
 
+class TestPriorSuspicionDoesNotPunishTheMonthlyBill:
+    def _rent_first_month(self) -> dict:
+        """Cliente com histórico paga R$ 2.000 de aluguel pela primeira vez: 2FA de golpe, e ele confirma."""
+        client = client_with_history()
+        origin = {"payer_document": client["payer_document"], "device_id": client["device_id"]}
+        landlord = new_payee()
+
+        first = send(**origin, **landlord, amount=200000, transaction_date=DAY)
+        assert first["status"] == "two_factor_required", first["metadata"]
+        assert first["metadata"]["step_up_reason"] == "possible_scam"
+        first["transaction_date"] = DAY
+        confirm(first)
+
+        return {"origin": origin, "landlord": landlord}
+
+    def test_same_rent_a_month_later_is_approved(self):
+        """Item 3 — o aluguel do mês 2, mesmo valor 30 dias depois, sai sem 2FA (antes, 46 dos 2FA dos clientes bons)."""
+        rent = self._rent_first_month()
+
+        second = send(**rent["origin"], **rent["landlord"], amount=200000, transaction_date=shift_date(DAY, days=30))
+
+        assert second["status"] == "approved", second["metadata"]
+        assert reason_for(second, "CONTA_RECEBEDORA.suspeita_anterior") is None
+        assert reason_for(second, "PERFIL.valor") is None
+
+    def test_rent_that_grew_still_asks_two_factor(self):
+        """O mesmo destino 30 dias depois, mas com valor 50% maior: não é conta do mês, é valor crescente."""
+        rent = self._rent_first_month()
+
+        second = send(**rent["origin"], **rent["landlord"], amount=300000, transaction_date=shift_date(DAY, days=30))
+
+        assert second["status"] == "two_factor_required", second["metadata"]
+        assert second["metadata"]["scam_warning"] is True
+
+    def test_same_amount_after_a_short_interval_still_asks_two_factor(self):
+        """O mesmo valor para o mesmo destino 10 dias depois: intervalo curto, a suspeita continua valendo."""
+        rent = self._rent_first_month()
+
+        second = send(**rent["origin"], **rent["landlord"], amount=200000, transaction_date=shift_date(DAY, days=10))
+
+        assert second["status"] == "two_factor_required", second["metadata"]
+        assert second["metadata"]["scam_warning"] is True
+
+
 class TestConfirmedScamDoesNotTeachTheProfile:
     def test_third_fake_call_center_pix_still_asks_two_factor(self):
         """Item 1 — a vítima da falsa central confirma R$ 4.800 e R$ 4.500; o 3º Pix, de R$ 3.900, não pode passar.

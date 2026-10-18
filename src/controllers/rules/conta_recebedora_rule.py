@@ -147,6 +147,20 @@ class ContaRecebedoraRule(BaseRule):
 
         prior_step_ups = features.payee_prior_scam_step_ups
 
+        if features.destination_monthly_bill:
+            return self.result(
+                PRIOR_SUSPICION,
+                1,
+                PASS,
+                "Valor parecido com um pagamento já confirmado a esta conta, de semanas atrás: a conta do mês, "
+                "e não um golpe repetido.",
+                observed={"prior_scam_step_ups": prior_step_ups, "monthly_bill": True},
+                threshold={
+                    "monthly_min_days": parameters["monthly_min_days"],
+                    "monthly_amount_tolerance_percent": parameters["monthly_amount_tolerance_percent"],
+                },
+            )
+
         out_of_profile = False
         if params.is_enabled(PROFILE_VALUE):
             out_of_profile = PerfilRule.profile_check(features, params.of(PROFILE_VALUE))["out_of_profile"]

@@ -55,6 +55,9 @@ class PixFeatures:
     # Se o destino vale como "a conta do mês": calculado pelo FeatureBuilder
     # (precisa do valor deste Pix e dos parâmetros da política).
     destination_recurring: bool
+    # O padrão da conta mensal: valor parecido com um pagamento já confirmado
+    # a este destino, feito há pelo menos N dias.
+    destination_monthly_bill: bool
 
     # Regra 5 — quem está operando
     device_distinct_payers: Optional[int]

@@ -59,7 +59,10 @@ class FeatureBuilder:
             pair_max_approved_amount = pair.max_approved_amount
             pair_scam_step_up_count = pair.scam_step_up_count
 
-        destination_recurring = self._destination_recurring(
+        destination_monthly_bill = self._destination_monthly_bill(
+            pix, destination_account, params.of("CONTA_RECEBEDORA.suspeita_anterior")
+        )
+        destination_recurring = destination_monthly_bill or self._destination_recurring(
             pix["amount"],
             pair_approved_count,
             pair_approved_days,
@@ -104,6 +107,7 @@ class FeatureBuilder:
             pair_max_approved_amount=pair_max_approved_amount,
             pair_scam_step_up_count=pair_scam_step_up_count,
             destination_recurring=destination_recurring,
+            destination_monthly_bill=destination_monthly_bill,
             device_distinct_payers=self._device_distinct_payers(
                 pix, device, params.of("QUEM_OPERA.aparelho_compartilhado")
             ),
@@ -169,6 +173,31 @@ class FeatureBuilder:
             approved_days >= parameters["recurring_min_days"]
             and amount * 100 <= max_approved_amount * parameters["recurring_max_growth_percent"]
         )
+
+    def _destination_monthly_bill(self, pix: dict, destination_account: Account, parameters) -> bool:
+        """O padrão da conta do mês: valor parecido com um pagamento já confirmado a este destino, de semanas atrás.
+
+        A suspeita de golpe de antes não pode punir o aluguel: quem
+        confirmou o do mês 1 e paga o mesmo valor no mês 2 está pagando uma
+        conta, não sendo enganado de novo. O padrão pede valor dentro de uma
+        tolerância do pagamento anterior E um intervalo mínimo desde ele: o
+        valor que cresce ou volta em poucos dias (o falso investimento)
+        segue sob suspeita.
+        """
+        if parameters is None:
+            return False
+
+        min_interval = timedelta(days=parameters["monthly_min_days"])
+        tolerance_percent = parameters["monthly_amount_tolerance_percent"]
+
+        for amount, paid_at in self.pix_feature_repository.confirmed_payments(
+            pix["payer_document"], destination_account.id, pix["transaction_date"], AnalysisStatus.APPROVED
+        ):
+            similar = abs(pix["amount"] - amount) * 100 <= amount * tolerance_percent
+            if similar and pix["transaction_date"] - paid_at >= min_interval:
+                return True
+
+        return False
 
     def _markers(self, document_number: str, transaction_date: datetime) -> list:
         markers = []

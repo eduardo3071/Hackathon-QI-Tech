@@ -142,6 +142,29 @@ class PixFeatureRepository:
             .scalar()
         )
 
+    def confirmed_payments(
+        self, payer_document: str, destination_account_id: int, end: datetime, status_enumerator: str
+    ) -> List[Tuple[int, datetime]]:
+        """Os Pix deste pagador para esta conta, com o status pedido, até `end`: (valor, data).
+
+        "Confirmado" é o status final: o Pix aprovado direto ou o que
+        pediu 2FA e passou. Quem decide se o padrão é o da conta do mês é
+        o FeatureBuilder; aqui só se lista.
+        """
+        rows = (
+            self.session.query(PixTransaction.amount, PixTransaction.transaction_date)
+            .join(Analysis, Analysis.pix_transaction_id == PixTransaction.id)
+            .join(AnalysisStatus, AnalysisStatus.id == Analysis.status_id)
+            .filter(
+                PixTransaction.payer_document_number == payer_document,
+                PixTransaction.destination_account_id == destination_account_id,
+                PixTransaction.transaction_date <= end,
+                AnalysisStatus.enumerator == status_enumerator,
+            )
+            .all()
+        )
+        return [(row.amount, row.transaction_date) for row in rows]
+
     def sum_third_party_credits(self, document: str, start: datetime, end: datetime, status_enumerator: str) -> int:
         """Quanto este documento recebeu de OUTROS documentos na janela, com o status pedido.
 

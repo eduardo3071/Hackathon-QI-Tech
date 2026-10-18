@@ -170,6 +170,11 @@ pode ser nulo, `to_status_id`, `event_datetime`, `created_at`). Toda análise gr
   ou nenhum) **e** o valor atual está fora do perfil (`PERFIL.valor`), o sinal pontua `app` no valor do corte de golpe
   (60) → `two_factor_required` com `possible_scam` e `scam_warning: true`. Dentro do perfil, passa.
 - Janela e pontos em `rule_parameter` (`window_days: 90`, `points: 60`). Mesma titularidade → `not_needed`.
+- **Não pune a conta do mês (bateria de realidade, item 3):** a suspeita não vale quando o novo Pix tem valor
+  parecido (até 25% de diferença) com um pagamento já confirmado a este destino e foi feito pelo menos 20 dias depois
+  dele (`monthly_amount_tolerance_percent: 25`, `monthly_min_days: 20`). Nesse padrão o destino também vale como
+  recorrente no `PERFIL.valor`. Continua valendo para valor crescente e para intervalo curto. Antes, isso gerava 46 dos
+  2FA em clientes legítimos da bateria (aluguel do mês 2).
 - Por quê: sem ele, a vítima que confirmou o golpe e paga o mesmo golpista no dia seguinte saía `approved` com `warn`
   (o crédito confirmado tira a conta do "primeiro crédito" da `conta_nova`, e o placar `app` ficava na faixa de aviso).
 

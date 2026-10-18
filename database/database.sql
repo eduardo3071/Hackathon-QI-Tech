@@ -376,9 +376,11 @@ CROSS JOIN (VALUES
     -- Estimativa: o pagador já tomou 2FA por suspeita de golpe para esta
     -- conta nos últimos 90 dias e o valor está fora do perfil → pontua
     -- golpe no valor do corte de golpe (60): o golpe repetido do falso
-    -- investimento volta a pedir confirmação com aviso.
+    -- investimento volta a pedir confirmação com aviso. Não vale para a
+    -- conta do mês: valor até 25 por cento diferente de um pagamento já
+    -- confirmado a esta conta, feito há 20 dias ou mais.
     ('CONTA_RECEBEDORA.suspeita_anterior',
-     '{"window_days": 90, "points": 60}'),
+     '{"window_days": 90, "points": 60, "monthly_min_days": 20, "monthly_amount_tolerance_percent": 25}'),
 
     -- Estimativa: o pagador recebeu de terceiros nos últimos 60 min e
     -- repassa 80 por cento ou mais disso. Pontua conta laranja no corte (60):
