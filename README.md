@@ -127,16 +127,16 @@ O payload do slide da QI Tech (R$ 1.500 às 22h15; conta pagadora de 2025-03-02;
 
 ```json
 {
-  "key": "311731fe-40f6-4a9e-a2b1-5a3770659aff",
+  "key": "c3a90769-35d9-4998-80f7-b280f78ca8ba",
   "status": "two_factor_required",
   "metadata": {
     "policy_version": "2026.10.1", "path": "deep", "layers": [0, 1, 2],
     "typology": "account_takeover", "recommended_action": "step_up",
     "step_up_reason": "account_takeover", "step_up_method": "face_liveness", "scam_warning": true,
-    "scores": {"ato": 60, "app": 0, "mule": 60},
-    "reasons": [ "...os 4 sinais abaixo..." ],
+    "scores": {"ato": 60, "app": 60, "mule": 60},
+    "reasons": [ "...os 5 sinais abaixo..." ],
     "ml": {"mode": "shadow", "status": "evaluated", "model_version": "iforest-v1", "anomaly_score": 0.6295},
-    "latency_ms": 272
+    "latency_ms": 73
   }
 }
 ```
@@ -147,8 +147,9 @@ O payload do slide da QI Tech (R$ 1.500 às 22h15; conta pagadora de 2025-03-02;
 | `LIMITE.noturno` | R$ 1.500 PF→PF às 22h, acima de R$ 1.000 e do maior Pix noturno já aprovado (R$ 0) → `two_factor` (limite) | — |
 | `PERFIL.valor` | sem histórico, acima do limite de partida de R$ 1.000, aparelho não confiável | `ato` +60 |
 | `CONTA_RECEBEDORA.conta_nova` | 7 dias, primeiro crédito, fora do perfil | `mule` +60 |
+| `CONTA_RECEBEDORA.primeiro_pix_alto` | primeiro Pix deste pagador, de R$ 1.500 (≥ R$ 1.000), para PF com conta de 7 dias: o padrão do falso parente | `app` +60 |
 
-Placares: `ato` 60, `app` 0, `mule` 60. A conta laranja tem **um** sinal só, então **não recusa** (a recusa exige dois). Há motivo de invasão (aparelho não confiável, com outros sinais de risco junto, então não é só o cadastro do aparelho) e de golpe (conta laranja ≥ corte): **`two_factor_required`**, `account_takeover`, `face_liveness` e `scam_warning: true`. Os sinais de local (viagem impossível, fora da zona) e de canal saíram `not_evaluated` porque o pagador não tem histórico para comparar, e o escore de anomalia (0,6295, acima do corte de 0,61) aparece só no modo sombra. A mesma sequência é um teste de cenário (`tests/integration/scenarios/test_scenarios.py`).
+Placares: `ato` 60, `app` 60, `mule` 60. A conta laranja tem **um** sinal só, então **não recusa** (a recusa exige dois). Há motivo de invasão (aparelho não confiável, com outros sinais de risco junto, então não é só o cadastro do aparelho) e de golpe (placares de golpe e de laranja no corte): **`two_factor_required`**, `account_takeover`, `face_liveness` e `scam_warning: true`. O `LIMITE.noturno_fora_de_casa` não recusa: sem nenhum Pix aprovado há 24 h, o pagador não tem local habitual, e o sinal sai `not_evaluated`, como os de local (viagem impossível, fora da zona) e de canal, porque o pagador não tem histórico para comparar, e o escore de anomalia (0,6295, acima do corte de 0,61) aparece só no modo sombra. A mesma sequência é um teste de cenário (`tests/integration/scenarios/test_scenarios.py`).
 
 ## O que o motor enxerga
 
