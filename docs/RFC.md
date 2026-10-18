@@ -255,7 +255,7 @@ erDiagram
 5. Perfil só com Pix aprovados e limpos: tentativa recusada e golpe confirmado não ensinam o motor.
 6. Parâmetros no banco, com fonte ou marcados como estimativa: dá para calibrar sem mudar código.
 
-Os testes por HTTP provam com cenários (193 testes): dez Pix simultâneos do mesmo pagador decidem como em fila; seis pagadores ao mesmo tempo para a mesma conta PF contam todos no fan-in.
+Os testes por HTTP provam com cenários (211 testes): dez Pix simultâneos do mesmo pagador decidem como em fila; seis pagadores ao mesmo tempo para a mesma conta PF contam todos no fan-in.
 
 ## Resultados e limitações (versão 2)
 
@@ -270,7 +270,7 @@ Os testes por HTTP provam com cenários (193 testes): dez Pix simultâneos do me
 | Conta laranja | 70,5% | 100% | 100% |
 | Padrão novo (nenhuma regra cobre) | 0% | 0% | 0% |
 
-Clientes legítimos: **2,1% de 2FA na versão 1, 2,8% na versão 2 e 2,3% na final**, 0% de recusa nas três. O aumento vem do cadastro do aparelho (64 dos 188 Pix legítimos com 2FA são `device_registration`: o primeiro Pix acima de R$ 200 de cada cliente, de propósito) e de 8 Pix de folha de pagamento que já pediam 2FA por outro motivo.
+Clientes legítimos: **2,1% de 2FA na versão 1, 2,8% na versão 2 e 2,3% na final**, 0% de recusa nas três. O aumento vem do cadastro do aparelho (64 dos 150 Pix legítimos com 2FA nesta rodada são `device_registration`: o primeiro Pix acima de R$ 200 de cada cliente, de propósito) e de 8 Pix de folha de pagamento que já pediam 2FA por outro motivo.
 
 **Bateria de realidade** (90 clientes por 60 dias e 12 golpes encenados; `docs/bateria-realidade.md`): travam a falsa central (os 3 Pix), o falso investimento (a partir do salto), a falsa venda (3º comprador), a mão fantasma (3º Pix), o SIM swap, a laranja de passagem, a fazenda de contas e a marcação.
 
@@ -280,7 +280,7 @@ Clientes legítimos: **2,1% de 2FA na versão 1, 2,8% na versão 2 e 2,3% na fin
 - **Celular roubado na rua:** resolvido na bateria (local habitual só depois de 24 h; Pix noturno longe de casa para destino novo é recusado); continua aberto perto da casa da vítima.
 - **Teste de contas** (Pix de centavos): só o ML pegaria, e em modo sombra ele só registra.
 - **Coação:** coberta à noite, longe de casa, para destino novo (a quinta forma de recusar); continua aberta perto de casa e para destino recorrente. Próximos passos no app: senha de coação, lugares seguros, aumento de limite com 24 h de espera.
-- **Latência:** na primeira rodada, em outro ambiente, o p95 do caminho rápido foi de 48 ms. Na máquina usada na entrega (Windows com Docker Desktop) o p95 passa de 200 ms. **Não prometemos um número sem medir na máquina da demonstração.**
+- **Latência:** depende da máquina. Temos três medidas, cada uma no seu ambiente: p95 de ~61 ms no `latency_ms` do simulador desta rodada (Postgres e API sem Docker, num container de nuvem); p95 de ~85–98 ms HTTP de ponta a ponta na bateria de realidade (mesmo ambiente); acima de 200 ms numa rodada anterior em Windows com Docker Desktop (código montado por volume). **Não prometemos um número sem medir na máquina da demonstração.**
 - **Visibilidade:** o motor só vê Pix da própria instituição; repasse rápido, fan-in, conta dormente e proximidade de conta marcada dependem disso. O caminho para superar é a consulta ao DICT.
 
 ## O que mudou desde a versão 1
@@ -297,7 +297,7 @@ Clientes legítimos: **2,1% de 2FA na versão 1, 2,8% na versão 2 e 2,3% na fin
 | Método do 2FA | Confirmação no app para golpe e limite | Biometria com aparelho não confiável, biometria reprovada em 24 h ou Pix a mais de 5 km do costume |
 | Biometria reprovada | Bloqueava o aparelho só por suspeita de invasão | Bloqueia por 24 h em qualquer 2FA com biometria |
 | Nº de sinais | cerca de 20 | 22 |
-| Resultados | "antes das correções em curso": 2,1% de 2FA | Medidos de novo: 2,8% de 2FA em legítimos |
+| Resultados | "antes das correções em curso": 2,1% de 2FA | Medidos de novo: 2,3% de 2FA em legítimos |
 
 **Ajustes finais (18/10), depois da versão 2:**
 

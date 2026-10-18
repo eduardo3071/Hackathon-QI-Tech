@@ -46,7 +46,7 @@ O motivo é uma brecha concreta: se um Pix aprovado bastasse, o ladrão "aquecer
 
 Não há "período de aprendizado": a Res. BCB 403/2024 vale para o pagador que o motor nunca viu, como para qualquer outro. O primeiro Pix acima de R$ 200 de um aparelho novo, **sem nenhum outro sinal de risco**, pede o **cadastro do aparelho**: `step_up_reason: "device_registration"` com `face_liveness` e sem aviso de golpe. É o cadastro que a norma prevê, feito uma vez só: com o retorno `passed`, o aparelho fica confiável. Se o pagador já tem um aparelho confiável, um aparelho novo é o caso do celular roubado, e o 2FA é `account_takeover`.
 
-Consequência assumida: na avaliação, com o banco vazio, o primeiro Pix de cada cliente acima de R$ 200 pede esse cadastro (64 dos 188 Pix legítimos com 2FA do simulador). Em produção o motor nasce com a carga do histórico (aparelhos já cadastrados) e isso some. O "Cadastro de dispositivos Pix" é, aliás, produto da própria QI Tech.
+Consequência assumida: na avaliação, com o banco vazio, o primeiro Pix de cada cliente acima de R$ 200 pede esse cadastro (64 dos 150 Pix legítimos com 2FA na última rodada do simulador). Em produção o motor nasce com a carga do histórico (aparelhos já cadastrados) e isso some. O "Cadastro de dispositivos Pix" é, aliás, produto da própria QI Tech.
 
 ## Regras
 
@@ -181,8 +181,8 @@ Tiradas da bateria de realidade (`docs/bateria-realidade.md`), que encena 12 gol
 | **Golpe sem sinal no contrato** | Ligação em andamento e app de acesso remoto instalado não chegam no payload | SDK no app e sinais do Device Scan |
 | **Salário pelo internet banking** | **Resolvido:** o `LIMITE.sem_geolocalizacao` não se aplica à empresa no aparelho confiável e no canal de sempre. A primeira folha para funcionários novos ainda pede biometria uma vez (`RITMO.destinos_novos`), de propósito | — |
 | **Todo primeiro Pix acima de R$ 200** | Pede o cadastro do aparelho, de propósito | Some com a carga do histórico em produção |
-| **Consultas da camada 2** | Rodam em todo Pix; só a *avaliação* dos sinais depende do gatilho. Medido na bateria: o caminho rápido (p50 77 ms, p95 98 ms) e o profundo (p50 77 ms, p95 97 ms) têm latência praticamente igual — essas consultas não são o gargalo | Condicioná-las ao gatilho é otimização para quando o volume justificar |
-| **Latência** | Medida nesta máquina (Windows, Docker Desktop, código montado por volume) o p95 passa de 200 ms; em outro ambiente foi de ~50 ms | Medir na máquina da demonstração antes de prometer um número |
+| **Consultas da camada 2** | Rodam em todo Pix; só a *avaliação* dos sinais depende do gatilho. Medido na bateria (HTTP de ponta a ponta) e no simulador (`latency_ms`): o caminho rápido e o profundo têm latência praticamente igual (p95 de 98 e 97 ms na bateria; 61 e 62 ms no simulador) — essas consultas não são o gargalo | Condicioná-las ao gatilho é otimização para quando o volume justificar |
+| **Latência** | Depende da máquina. Temos três medidas, cada uma no seu ambiente: p95 de ~61 ms no `latency_ms` do simulador desta rodada (Postgres e API sem Docker, num container de nuvem); p95 de ~85–98 ms HTTP de ponta a ponta na bateria de realidade (mesmo ambiente); acima de 200 ms numa rodada anterior em Windows com Docker Desktop (código montado por volume) | Não prometemos um número; medir na máquina da demonstração |
 
 **Sinais que o payload não traz (próximo passo).** É o que os grandes bancos usam contra golpe e o contrato do
 desafio não carrega: ligação telefônica em andamento durante o Pix; app de acesso remoto instalado ou ativo;
@@ -337,7 +337,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-No Windows, o endereço `0.0.0.0` não conecta: crie o `.env` (`copy .env.example .env`) e troque `SERVER_LOCALHOST=0.0.0.0` por `SERVER_LOCALHOST=127.0.0.1`. Se a porta 5432 ou 3000 já estiver ocupada (um Postgres local, por exemplo), ponha `DB_PORT=5433` ou `API_PORT=3001` no `.env` e ajuste a `DATABASE_URL`. A suíte inteira leva de 2 a 4 minutos (depende da máquina) e termina com **193 passed**.
+No Windows, o endereço `0.0.0.0` não conecta: crie o `.env` (`copy .env.example .env`) e troque `SERVER_LOCALHOST=0.0.0.0` por `SERVER_LOCALHOST=127.0.0.1`. Se a porta 5432 ou 3000 já estiver ocupada (um Postgres local, por exemplo), ponha `DB_PORT=5433` ou `API_PORT=3001` no `.env` e ajuste a `DATABASE_URL`. A suíte inteira leva de 2 a 4 minutos (depende da máquina) e termina com **211 passed**.
 
 ### Mudou o `database/database.sql`?
 

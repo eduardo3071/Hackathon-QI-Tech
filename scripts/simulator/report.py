@@ -186,8 +186,8 @@ def ml_scores(rows) -> list:
 
 
 FINDINGS = [
-    "**Cadastro do aparelho de todo cliente (de propósito, item 9 da bateria de realidade).** 64 dos 188 Pix "
-    "legítimos com 2FA são `device_registration`: o primeiro Pix acima de R$ 200 de cada cliente, de um aparelho "
+    "**Cadastro do aparelho de todo cliente (de propósito, item 9 da bateria de realidade).** Nesta rodada, 64 dos 150 Pix "
+    "legítimos com 2FA (de 6.614) são `device_registration`: o primeiro Pix acima de R$ 200 de cada cliente, de um aparelho "
     "novo, pede biometria (a Res. BCB 403/2024 vale para todos). Em produção o motor nasce com a carga do histórico "
     "e isso some.",
     "**Salário pelo internet banking: de 62 para 16 Pix com 2FA** (25,8%) depois da exceção de 18/10: o "
@@ -205,9 +205,10 @@ FINDINGS = [
     "de R$ 199 cabem nos R$ 200 por Pix que o BCB permite em aparelho não cadastrado; a perda fica no teto diário.",
     "**Rajada:** a `RITMO.destinos_novos` (item 6) pede biometria a partir do 3º destino novo somando R$ 2.000, e a "
     "velocidade a partir do 5º Pix em 10 minutos; os Pix de rajada pegos subiram de 47,4% para 63,2%.",
-    "**Latência depende da máquina.** Nesta rodada (Windows com Docker Desktop, código montado por volume) o p95 é de "
-    "algumas centenas de milissegundos, bem acima da rodada anterior, feita em outro ambiente. Não prometer "
-    "\"p95 abaixo de 100 ms\" sem medir na máquina da demonstração.",
+    "**Latência depende da máquina.** Três medidas, cada uma no seu ambiente: p95 de ~61 ms no `latency_ms` "
+    "desta rodada (Postgres e API sem Docker, num container de nuvem); p95 de ~85–98 ms HTTP de ponta a ponta "
+    "na bateria de realidade (mesmo ambiente); acima de 200 ms numa rodada anterior em Windows com Docker "
+    "Desktop (código montado por volume). Não prometemos um número sem medir na máquina da demonstração.",
 ]
 
 ML_CONCLUSION = [
