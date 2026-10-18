@@ -228,7 +228,11 @@ ou mais; o parâmetro `new_client_min_account_age_days` saiu do seed).
 - 2º degrau: **10× a mediana ou mais e valor acima de R$ 1.000**, para destino novo e aparelho confiável → pontua
   `app` no valor do corte de golpe (60) → `two_factor_required` com `possible_scam` e `scam_warning: true`.
 - Fator, piso e pontos em `rule_parameter` (`high_median_multiplier: 10`, `high_min_amount: 100000`,
-  `high_app_points: 60`). Sem histórico suficiente (menos de 5 Pix) não há mediana, e vale só o limite de partida.
+  `high_app_points: 60`). Sem histórico suficiente (menos de 5 Pix) não há mediana, e vale o limite de partida.
+- **Teto sem histórico (18/10, avaliador externo):** sem histórico suficiente, valor de **R$ 10.000 ou mais**
+  (`high_fallback_amount: 1000000`, estimativa) vale como o 2º degrau → 2FA com aviso de golpe, para destino novo de
+  aparelho confiável. Antes, um aparelho confiável com dois Pix de R$ 100 mandava R$ 200.000 só com aviso.
+  Aparelho não confiável e mesma titularidade não mudam.
 
 ## Destino recorrente (REVISADO após a bateria de realidade, item 2)
 
@@ -339,7 +343,7 @@ ou mais; o parâmetro `new_client_min_account_age_days` saiu do seed).
 ## Ordem de trabalho
 
 - Fases 1 e 2: feitas (67 testes verdes em 17/10 15h). Antes de seguir, aplicar as revisões deste arquivo.
-- Fases 3 e 4: feitas. **Bateria de realidade (18/10, madrugada):** itens 1 a 10 feitos (212 testes verdes); os
+- Fases 3 e 4: feitas. **Bateria de realidade (18/10, madrugada):** itens 1 a 10 feitos (215 testes verdes); os
   números estão em `docs/bateria-realidade.md` e `docs/resultados-simulador.md`. Limitações que a bateria deixou:
   o falso parente (F2) ainda passa para o cliente simulado cujo P95 de destinos novos já é alto; o celular roubado
   que faz um Pix aprovado longe de casa "ensina" a zona habitual (o 2º Pix já não está longe); o teste de contas

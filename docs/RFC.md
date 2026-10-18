@@ -255,7 +255,7 @@ erDiagram
 5. Perfil só com Pix aprovados e limpos: tentativa recusada e golpe confirmado não ensinam o motor.
 6. Parâmetros no banco, com fonte ou marcados como estimativa: dá para calibrar sem mudar código.
 
-Os testes por HTTP provam com cenários (212 testes): dez Pix simultâneos do mesmo pagador decidem como em fila; seis pagadores ao mesmo tempo para a mesma conta PF contam todos no fan-in.
+Os testes por HTTP provam com cenários (215 testes): dez Pix simultâneos do mesmo pagador decidem como em fila; seis pagadores ao mesmo tempo para a mesma conta PF contam todos no fan-in.
 
 ## Resultados e limitações (versão 2)
 
@@ -308,4 +308,5 @@ Clientes legítimos: **2,1% de 2FA na versão 1, 2,8% na versão 2 e 2,3% na fin
 | Salário pago pela empresa | Sem geolocalização, todo Pix > R$ 500 pedia 2FA | `LIMITE.sem_geolocalizacao` não se aplica ao PJ no aparelho confiável e no canal de sempre |
 | Celular roubado na rua (F6) | O Pix aprovado na rua virava "local habitual" na hora | Local só vira habitual 24 h depois, para o método do 2FA e para a coação |
 | Coação (F8) | A vítima coagida passava no 2FA | `LIMITE.noturno_fora_de_casa` → `rejected`: a quinta forma de recusar |
+| Valor muito alto com histórico curto | Sem mediana (menos de 5 Pix), o 2º degrau nunca valia: R$ 200.000 de um aparelho confiável saíam só com aviso | `PERFIL.valor`: sem histórico suficiente, R$ 10.000 ou mais (`high_fallback_amount`, estimativa) → 2FA com aviso de golpe |
 | Nº de sinais | 22 | 25 |

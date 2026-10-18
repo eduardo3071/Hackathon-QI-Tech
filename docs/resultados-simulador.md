@@ -1,5 +1,7 @@
 # Resultados do simulador
 
+> **Não refletido nestes números:** o teto do `PERFIL.valor` sem histórico suficiente (R$ 10.000 ou mais → 2FA com aviso de golpe, ajuste de 18/10, 10h40) e a contagem da velocidade só juntando reenvios não aprovados (18/10, 10h); o simulador não foi rodado de novo depois deles.
+>
 > **Rodada de 18/10, 9h16.** Estes números já refletem os ajustes finais: `CONTA_RECEBEDORA.primeiro_pix_alto`, `PERFIL.escalada`, a exceção da empresa no `LIMITE.sem_geolocalizacao`, o local habitual só depois de 24 h e o `LIMITE.noturno_fora_de_casa`. **A comparação com o ML ativo, no fim, não foi refeita**: é da rodada anterior (item 10 da bateria de realidade), antes desses ajustes. O modelo não foi retreinado; os sinais novos não são features dele.
 
 > **Leia antes dos números.** O simulador é do próprio grupo: os cenários de fraude foram desenhados por nós, conhecendo as regras. Por isso estes números são **teste de regressão da política e medida de fricção**, e **não eficácia**: não dizem quanto o motor pegaria de fraude real. O motor só vê Pix de clientes da QI Tech, e o simulador reproduz isso: 70% dos créditos que as contas recebem vêm de pagadores que o motor nunca vê (salário, vítimas de outros bancos). O cenário "padrão novo" também foi desenhado por nós: ele mostra o mecanismo do ML, não a eficácia dele.
